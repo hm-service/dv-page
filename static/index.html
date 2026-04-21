@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Daveny - 个人主页</title>
+        <style>
+            /* 基础重置 */
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body,
+            html {
+                height: 100%;
+                /* 隐藏可能出现的滚动条（针对第一屏），后续增加滚屏功能时可调整 */
+                overflow: hidden;
+            }
+
+            body {
+                background: #020617;
+                color: #e2e8f0;
+                font-family: "PingFang SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
+            }
+
+            .page-body {
+                height: 100%;
+                overflow: hidden;
+            }
+
+            .page-stack {
+                height: 200vh;
+                width: 100%;
+                transform: translateY(0);
+                transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+                will-change: transform;
+            }
+
+            .page-stack.is-second-view {
+                transform: translateY(-100vh);
+            }
+
+            .view-panel {
+                position: relative;
+                height: 100vh;
+                width: 100%;
+            }
+
+            .view-center {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .hero-section {
+                position: relative;
+                background: url("bg.jpg") no-repeat center center;
+                background-size: cover;
+                overflow: hidden;
+            }
+
+            .hero-scroll-hint {
+                position: absolute;
+                left: 50%;
+                bottom: 34px;
+                z-index: 3;
+                display: inline-flex;
+                align-items: center;
+                gap: 10px;
+                padding: 10px 16px;
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                border-radius: 999px;
+                background: rgba(9, 14, 24, 0.28);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                color: rgba(255, 255, 255, 0.82);
+                font-size: 0.82rem;
+                letter-spacing: 0.08em;
+                transform: translateX(-50%);
+                opacity: 0;
+                animation: hintReveal 1s ease 2.1s forwards;
+            }
+
+            .hero-scroll-hint::after {
+                content: "";
+                width: 8px;
+                height: 8px;
+                border-right: 1.5px solid rgba(255, 255, 255, 0.86);
+                border-bottom: 1.5px solid rgba(255, 255, 255, 0.86);
+                transform: rotate(45deg) translateY(-1px);
+            }
+
+            .hero-overlay {
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(120deg, rgba(10, 14, 23, 0.78), rgba(0, 0, 0, 0.52));
+                opacity: 0;
+                transform: scale(1.04);
+                will-change: opacity, transform;
+            }
+
+            .hero-glass {
+                position: absolute;
+                inset: 0;
+                background: rgba(255, 255, 255, 0);
+                backdrop-filter: blur(0px);
+                -webkit-backdrop-filter: blur(0px);
+                will-change: backdrop-filter, background-color;
+            }
+
+            .hero-stage {
+                position: relative;
+                z-index: 2;
+                width: min(92vw, 720px);
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                gap: 20px;
+                min-height: 260px;
+                padding: 0 2.5rem;
+            }
+
+            .hero-lane {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-width: 0;
+                width: 100%;
+            }
+
+            .hero-lane-left {
+                min-height: 120px;
+            }
+
+            .hero-lane-right {
+                min-height: 92px;
+            }
+
+            .axis-line {
+                width: min(62vw, 420px);
+                height: 2px;
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.88);
+                box-shadow: 0 0 18px rgba(255, 255, 255, 0.18);
+                opacity: 0;
+                transform: scaleX(0.16);
+                transform-origin: center;
+                will-change: opacity, transform;
+            }
+
+            .avatar {
+                opacity: 0;
+                transform: translateY(48px) scale(0.94);
+                transition: transform 0.35s ease;
+                will-change: opacity, transform;
+            }
+
+            .avatar-image {
+                width: 82px;
+                height: 82px;
+                border: 3px solid rgba(255, 255, 255, 0.8);
+                border-radius: 50%;
+                object-fit: cover;
+                box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+            }
+
+            .avatar:hover {
+                transform: scale(1.05);
+            }
+
+            .identity {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 0;
+                opacity: 0;
+                transform: translateY(-26px);
+                will-change: opacity, transform;
+            }
+
+            .user-id {
+                color: #ffffff;
+                font-size: clamp(1.8rem, 4vw, 3.2rem);
+                font-weight: 600;
+                letter-spacing: 0.08em;
+                text-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+                white-space: nowrap;
+                display: inline-flex;
+                align-items: center;
+                min-height: 1.2em;
+                line-height: 1.1;
+            }
+
+            .user-id-text {
+                display: inline-block;
+            }
+
+            .user-id-cursor {
+                width: 0.42em;
+                height: 0.92em;
+                margin-left: 0.14em;
+                border-radius: 2px;
+                background: rgba(255, 255, 255, 0.95);
+                box-shadow: 0 0 12px rgba(255, 255, 255, 0.2);
+                opacity: 0;
+            }
+
+            .user-id-cursor.is-visible {
+                opacity: 1;
+                animation: cursorPulse 0.9s ease-in-out infinite;
+            }
+
+            .details-section {
+                position: relative;
+                background: radial-gradient(
+                    circle at top left,
+                    rgba(255, 255, 255, 0.94),
+                    rgba(248, 250, 252, 0.98) 40%,
+                    #e5edf5 100%
+                );
+                overflow: hidden;
+            }
+
+            .details-section::before,
+            .details-section::after {
+                content: "";
+                position: absolute;
+                border-radius: 999px;
+                pointer-events: none;
+                opacity: 0.6;
+            }
+
+            .details-section::before {
+                top: 12%;
+                left: -6%;
+                width: 360px;
+                height: 360px;
+                background: radial-gradient(
+                    circle,
+                    rgba(191, 219, 254, 0.52),
+                    rgba(191, 219, 254, 0)
+                );
+            }
+
+            .details-section::after {
+                right: -8%;
+                bottom: 14%;
+                width: 380px;
+                height: 380px;
+                background: radial-gradient(
+                    circle,
+                    rgba(226, 232, 240, 0.86),
+                    rgba(254, 249, 195, 0)
+                );
+            }
+
+            .details-grid {
+                position: relative;
+                z-index: 1;
+                width: min(92vw, 960px);
+                opacity: 0;
+                transform: translateY(24px);
+                transition:
+                    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+                    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+            }
+
+            .details-section.is-active .details-grid {
+                opacity: 1;
+                transform: translateY(0);
+            }
+
+            .details-panel {
+                padding: 3.5rem 1.5rem;
+            }
+
+            .details-empty {
+                min-height: calc(100vh - 180px);
+            }
+
+            .record-bar {
+                position: absolute;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                z-index: 2;
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                align-items: center;
+                gap: 6px 18px;
+                padding: 14px 18px 16px;
+                border-top: 1px solid rgba(15, 23, 42, 0.08);
+                background: rgba(255, 255, 255, 0.72);
+                box-shadow: 0 -10px 30px rgba(148, 163, 184, 0.08);
+                transform: none;
+            }
+
+            .record-bar a {
+                color: rgba(15, 23, 42, 0.78);
+                text-decoration: none;
+            }
+
+            .record-bar a:hover {
+                color: #0f172a;
+            }
+
+            .record-item {
+                color: rgba(15, 23, 42, 0.68);
+                font-size: 0.78rem;
+                letter-spacing: 0.02em;
+                white-space: nowrap;
+            }
+
+            .record-item strong {
+                color: #0f172a;
+                font-weight: 500;
+            }
+
+            @keyframes cursorPulse {
+                0%,
+                100% {
+                    opacity: 1;
+                    transform: scaleY(1);
+                }
+                50% {
+                    opacity: 0.22;
+                    transform: scaleY(0.88);
+                }
+            }
+
+            @keyframes hintReveal {
+                from {
+                    opacity: 0;
+                    transform: translateX(-50%) translateY(10px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateX(-50%) translateY(0);
+                }
+            }
+
+            @media (max-width: 640px) {
+                .hero-stage {
+                    width: min(94vw, 480px);
+                    gap: 14px;
+                    min-height: 220px;
+                    padding: 0 1.5rem;
+                }
+
+                .hero-lane-left {
+                    min-height: 96px;
+                }
+
+                .hero-lane-right {
+                    min-height: 72px;
+                }
+
+                .axis-line {
+                    width: min(72vw, 320px);
+                }
+
+                .user-id {
+                    font-size: clamp(1.45rem, 6vw, 2.2rem);
+                    letter-spacing: 0.05em;
+                }
+
+                .user-id-cursor {
+                    width: 0.36em;
+                    height: 0.86em;
+                }
+
+                .avatar-image {
+                    width: 72px;
+                    height: 72px;
+                }
+
+                .hero-scroll-hint {
+                    bottom: 22px;
+                    padding: 9px 14px;
+                    font-size: 0.74rem;
+                }
+
+                .details-panel {
+                    padding: 3.5rem 1.25rem;
+                }
+
+                .details-empty {
+                    min-height: calc(100vh - 150px);
+                }
+
+                .record-bar {
+                    gap: 6px 12px;
+                    padding: 12px 14px 14px;
+                }
+
+                .record-item {
+                    font-size: 0.74rem;
+                }
+            }
+
+            @media (min-width: 768px) {
+                .details-grid {
+                    width: min(92vw, 960px);
+                }
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .page-stack,
+                .hero-overlay,
+                .hero-glass,
+                .hero-stage,
+                .axis-line,
+                .avatar,
+                .identity,
+                .user-id-cursor,
+                .hero-scroll-hint {
+                    animation: none !important;
+                    transition: none !important;
+                }
+            }
+        </style>
+    </head>
+    <body class="page-body">
+        <main class="page-stack" data-current-view="0">
+            <section class="hero-section view-panel view-center">
+                <div class="hero-overlay"></div>
+                <div class="hero-glass"></div>
+                <div class="hero-stage">
+                    <div class="hero-lane hero-lane-left">
+                        <img src="avatar.jpg" alt="Daveny 的头像" class="avatar avatar-image" />
+                    </div>
+                    <span class="axis-line" aria-hidden="true"></span>
+                    <div class="hero-lane hero-lane-right identity">
+                        <h1 class="user-id" aria-label="Daveny">
+                            <span class="user-id-text"></span>
+                            <span class="user-id-cursor" aria-hidden="true"></span>
+                        </h1>
+                    </div>
+                </div>
+                <button class="hero-scroll-hint" type="button" data-scroll-target="1">
+                    向下滑动查看更多
+                </button>
+            </section>
+
+            <section class="details-section view-panel view-center details-panel">
+                <div class="details-grid details-empty" aria-hidden="true"></div>
+
+                <footer class="record-bar" aria-label="备案信息">
+                    <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">
+                        蜀ICP备2026015939号-1
+                    </a>
+                    <span class="record-item"><strong>Copyright</strong>：© 2026 Daveny</span>
+                </footer>
+            </section>
+        </main>
+        <script>
+            const pageStack = document.querySelector(".page-stack");
+            const detailsSection = document.querySelector(".details-section");
+            const heroElements = {
+                overlay: document.querySelector(".hero-overlay"),
+                glass: document.querySelector(".hero-glass"),
+                axisLine: document.querySelector(".axis-line"),
+                avatar: document.querySelector(".avatar"),
+                identity: document.querySelector(".identity"),
+                userIdText: document.querySelector(".user-id-text"),
+                userIdCursor: document.querySelector(".user-id-cursor"),
+                scrollHint: document.querySelector("[data-scroll-target='1']"),
+            };
+
+            const heroSequenceConfig = {
+                easing: {
+                    reveal: "cubic-bezier(0.22, 1, 0.36, 1)",
+                    settle: "cubic-bezier(0.2, 0.9, 0.2, 1)",
+                },
+                durations: {
+                    overlay: 2200,
+                    line: 520,
+                    avatar: 700,
+                    identity: 420,
+                    glass: 1200,
+                },
+                delays: {
+                    line: 120,
+                    intro: 140,
+                },
+                typingFrames: ["D", "Da", "Dav", "Dave", "Daven", "Daveny"],
+                typingDurations: [75, 105, 115, 130, 155, 180],
+            };
+
+            const prefersReducedMotion = window.matchMedia(
+                "(prefers-reduced-motion: reduce)",
+            ).matches;
+            let currentViewIndex = 0;
+            let isViewTransitionLocked = false;
+            let touchStartY = 0;
+
+            const wait = (ms) =>
+                new Promise((resolve) => {
+                    window.setTimeout(resolve, ms);
+                });
+
+            const setCurrentView = async (nextIndex) => {
+                if (!pageStack || isViewTransitionLocked) {
+                    return;
+                }
+
+                const clampedIndex = Math.max(0, Math.min(1, nextIndex));
+                if (clampedIndex === currentViewIndex) {
+                    return;
+                }
+
+                currentViewIndex = clampedIndex;
+                isViewTransitionLocked = true;
+                pageStack.dataset.currentView = String(currentViewIndex);
+                pageStack.classList.toggle("is-second-view", currentViewIndex === 1);
+                detailsSection?.classList.toggle("is-active", currentViewIndex === 1);
+
+                const lockDuration = prefersReducedMotion ? 0 : 920;
+                await wait(lockDuration);
+                isViewTransitionLocked = false;
+            };
+
+            const handleDirectionalScroll = (direction) => {
+                if (direction > 0) {
+                    setCurrentView(1);
+                    return;
+                }
+
+                if (direction < 0) {
+                    setCurrentView(0);
+                }
+            };
+
+            const animateElement = (element, keyframes, options) => {
+                if (!element) {
+                    return Promise.resolve();
+                }
+
+                if (prefersReducedMotion) {
+                    const lastFrame = keyframes[keyframes.length - 1];
+                    Object.entries(lastFrame).forEach(([property, value]) => {
+                        if (property !== "offset" && property !== "easing") {
+                            element.style[property] = value;
+                        }
+                    });
+                    return Promise.resolve();
+                }
+
+                const animation = element.animate(keyframes, {
+                    fill: "forwards",
+                    ...options,
+                });
+
+                return animation.finished.catch(() => undefined);
+            };
+
+            const runTypingSequence = async () => {
+                const { userIdText, userIdCursor } = heroElements;
+
+                if (!userIdText || !userIdCursor) {
+                    return;
+                }
+
+                const { typingFrames, typingDurations } = heroSequenceConfig;
+                userIdCursor.classList.add("is-visible");
+
+                for (let index = 0; index < typingFrames.length; index += 1) {
+                    const nextText = typingFrames[index];
+                    userIdText.textContent = nextText;
+
+                    if (index < typingFrames.length - 1) {
+                        await wait(typingDurations[index]);
+                    }
+                }
+            };
+
+            const playHeroSequence = async () => {
+                const { overlay, glass, axisLine, avatar, identity, userIdCursor } = heroElements;
+
+                if (userIdCursor) {
+                    userIdCursor.classList.add("is-visible");
+                }
+
+                animateElement(
+                    overlay,
+                    [
+                        { opacity: 0, transform: "scale(1.04)" },
+                        { opacity: 1, transform: "scale(1)" },
+                    ],
+                    {
+                        duration: heroSequenceConfig.durations.overlay,
+                        easing: heroSequenceConfig.easing.reveal,
+                    },
+                );
+
+                await wait(heroSequenceConfig.delays.line);
+                await animateElement(
+                    axisLine,
+                    [
+                        { opacity: 0, transform: "scaleX(0.16)" },
+                        { opacity: 1, transform: "scaleX(1)" },
+                    ],
+                    {
+                        duration: heroSequenceConfig.durations.line,
+                        easing: heroSequenceConfig.easing.reveal,
+                    },
+                );
+
+                await wait(heroSequenceConfig.delays.intro);
+                const avatarIntro = animateElement(
+                    avatar,
+                    [
+                        {
+                            opacity: 0,
+                            transform: "translateY(48px) scale(0.94)",
+                        },
+                        {
+                            opacity: 1,
+                            transform: "translateY(0) scale(1)",
+                        },
+                    ],
+                    {
+                        duration: heroSequenceConfig.durations.avatar,
+                        easing: heroSequenceConfig.easing.settle,
+                    },
+                );
+
+                const identityIntro = animateElement(
+                    identity,
+                    [
+                        { opacity: 0, transform: "translateY(-26px)" },
+                        { opacity: 1, transform: "translateY(0)" },
+                    ],
+                    {
+                        duration: heroSequenceConfig.durations.identity,
+                        easing: heroSequenceConfig.easing.settle,
+                    },
+                );
+
+                await avatarIntro;
+                animateElement(
+                    glass,
+                    [
+                        {
+                            background: "rgba(255, 255, 255, 0)",
+                            backdropFilter: "blur(0px)",
+                            webkitBackdropFilter: "blur(0px)",
+                        },
+                        {
+                            background: "rgba(255, 255, 255, 0.06)",
+                            backdropFilter: "blur(5px)",
+                            webkitBackdropFilter: "blur(5px)",
+                        },
+                    ],
+                    {
+                        duration: heroSequenceConfig.durations.glass,
+                        easing: heroSequenceConfig.easing.reveal,
+                    },
+                );
+                await identityIntro;
+                await runTypingSequence();
+            };
+
+            window.addEventListener("load", () => {
+                playHeroSequence();
+            });
+
+            window.addEventListener(
+                "wheel",
+                (event) => {
+                    if (Math.abs(event.deltaY) < 18) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    handleDirectionalScroll(event.deltaY);
+                },
+                { passive: false },
+            );
+
+            window.addEventListener("keydown", (event) => {
+                if (["ArrowDown", "PageDown", "Space"].includes(event.code)) {
+                    event.preventDefault();
+                    handleDirectionalScroll(1);
+                }
+
+                if (["ArrowUp", "PageUp"].includes(event.code)) {
+                    event.preventDefault();
+                    handleDirectionalScroll(-1);
+                }
+            });
+
+            window.addEventListener(
+                "touchstart",
+                (event) => {
+                    touchStartY = event.touches[0]?.clientY ?? 0;
+                },
+                { passive: true },
+            );
+
+            window.addEventListener(
+                "touchend",
+                (event) => {
+                    const touchEndY = event.changedTouches[0]?.clientY ?? touchStartY;
+                    const deltaY = touchStartY - touchEndY;
+
+                    if (Math.abs(deltaY) < 42) {
+                        return;
+                    }
+
+                    handleDirectionalScroll(deltaY);
+                },
+                { passive: true },
+            );
+
+            heroElements.scrollHint?.addEventListener("click", () => {
+                setCurrentView(1);
+            });
+        </script>
+    </body>
+</html>
