@@ -30,7 +30,7 @@ RUN go build -ldflags="-w -s" -o dv-page main.go
 FROM alpine:3
 
 ENV TZ=Asia/Shanghai
-ENV PORT=80
+ENV PORT=8080
 
 RUN addgroup -g 1000 service && \
     adduser -u 1000 -D -G service -s /bin/sh service
@@ -38,7 +38,7 @@ RUN mkdir -p /app && chown 1000:1000 /app
 
 COPY --from=builder /build/dv-page /app
 
-EXPOSE 80
+EXPOSE 8080
 
 WORKDIR /app
 USER 1000:1000
