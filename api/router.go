@@ -2,6 +2,7 @@
 package api
 
 import (
+	"errors"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -18,7 +19,10 @@ type Options struct {
 	TrustedProxies []*net.IPNet
 	// ReadyToken 为空表示 /readyz 不设门槛；设置后必须以 ?token= 命中。
 	ReadyToken string
-	Logger     *slog.Logger
+	// MaxAPIConcurrency / MaxStaticConcurrency 是两组在途请求的上限，都必须 >= 1。
+	MaxAPIConcurrency    int
+	MaxStaticConcurrency int
+	Logger               *slog.Logger
 }
 
 type server struct {
@@ -26,17 +30,30 @@ type server struct {
 }
 
 // NewRouter 挂上全部路由；方法校验留在处理器里，好让 405 也能走 i18n。
-func NewRouter(opts Options) http.Handler {
+func NewRouter(opts Options) (http.Handler, error) {
+	if opts.MaxAPIConcurrency < 1 {
+		return nil, errors.New("max api concurrency must be at least 1")
+	}
+	if opts.MaxStaticConcurrency < 1 {
+		return nil, errors.New("max static concurrency must be at least 1")
+	}
+
 	s := &server{opts: opts}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/profile", s.handleProfile)
-	mux.HandleFunc("/api/site", s.handleSite)
+	mux.HandleFunc("/api/avatar", s.handleAvatar)
 	mux.HandleFunc("/livez", s.handleLivez)
 	mux.HandleFunc("/readyz", s.handleReadyz)
 	mux.HandleFunc("/", s.handleStatic)
 
-	return s.withAccessLog(s.withRecover(s.withBodyLimit(mux)))
+	limited := withConcurrencyLimits(
+		newLimiter(opts.MaxAPIConcurrency, opts.Logger),
+		newLimiter(opts.MaxStaticConcurrency, opts.Logger),
+		s.withBodyLimit(mux),
+	)
+
+	return s.withAccessLog(s.withRecover(limited)), nil
 }
 
 func (s *server) clientIP(r *http.Request) string {

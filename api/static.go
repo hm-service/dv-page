@@ -33,6 +33,12 @@ func (s *server) handleStatic(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// /api/ 下不给 SPA 回退：老客户端会拿着入口 HTML 当接口成功（200 + HTML）。
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		httpx.WriteError(w, s.logger(), http.StatusNotFound, negotiateLanguage(r), "error.not-found")
+		return
+	}
+
 	// 单页应用回退：只有「像导航」的路径才回到入口，缺的静态资源仍按 404 处理。
 	if !strings.Contains(path.Base(name), ".") {
 		s.serveIndex(w, r)

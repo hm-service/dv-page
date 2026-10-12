@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { avatarPath } from '../api/profile'
 import { playHeroSequence, prefersReducedMotion } from '../composables/useHeroSequence'
 import { languages, t, type Language } from '../i18n'
 
 const props = defineProps<{
   name: string
-  /** 接口给的头像对象 URL。 */
-  avatarUrl: string
   lang: Language
 }>()
 
@@ -45,7 +44,7 @@ onMounted(() => {
       <div class="hero-lane hero-lane-left">
         <img
           ref="avatar"
-          :src="avatarUrl"
+          :src="avatarPath"
           :alt="t(lang, 'hero.avatar-alt', { name })"
           class="avatar avatar-image"
         />

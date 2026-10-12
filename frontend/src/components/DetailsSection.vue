@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import RecordBar from './RecordBar.vue'
-import type { SiteInfo } from '../api/site'
+import type { SiteInfo } from '../api/profile'
 import type { Language } from '../i18n'
 
 defineProps<{

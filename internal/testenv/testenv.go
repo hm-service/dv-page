@@ -2,7 +2,6 @@
 package testenv
 
 import (
-	"encoding/base64"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -42,9 +41,9 @@ func Name() string {
 	return "Daveny"
 }
 
-// AvatarBase64 是内置头像的 base64：接口返回的就该是这一份。
-func AvatarBase64() string {
-	return base64.StdEncoding.EncodeToString(builtin.Avatar())
+// AvatarBytes 是内置头像的原始字节：/api/avatar 返回的就该是这一份。
+func AvatarBytes() []byte {
+	return builtin.Avatar()
 }
 
 // Logger 把日志收进调用方给的 writer，便于断言访问日志与审计日志。
@@ -60,7 +59,16 @@ type Options struct {
 	ReadyToken string
 	Trusted    string
 	Logger     *slog.Logger
+	// 两个并发上限为 0 时用下面的默认值。
+	MaxAPIConcurrency    int
+	MaxStaticConcurrency int
 }
+
+// 与生产的默认值一致；限流用例可以压低。
+const (
+	DefaultMaxAPIConcurrency    = 128
+	DefaultMaxStaticConcurrency = 64
+)
 
 // Server 起一套现成的服务：日志默认丢弃。
 func Server(t *testing.T, opts Options) (http.Handler, *app.App) {
@@ -107,11 +115,27 @@ func Server(t *testing.T, opts Options) (http.Handler, *app.App) {
 		t.Fatalf("build app: %v", err)
 	}
 
-	return api.NewRouter(api.Options{
-		App:            application,
-		Assets:         assets,
-		TrustedProxies: trusted,
-		ReadyToken:     opts.ReadyToken,
-		Logger:         logger,
-	}), application
+	maxAPI := opts.MaxAPIConcurrency
+	if maxAPI == 0 {
+		maxAPI = DefaultMaxAPIConcurrency
+	}
+	maxStatic := opts.MaxStaticConcurrency
+	if maxStatic == 0 {
+		maxStatic = DefaultMaxStaticConcurrency
+	}
+
+	handler, err := api.NewRouter(api.Options{
+		App:                  application,
+		Assets:               assets,
+		TrustedProxies:       trusted,
+		ReadyToken:           opts.ReadyToken,
+		MaxAPIConcurrency:    maxAPI,
+		MaxStaticConcurrency: maxStatic,
+		Logger:               logger,
+	})
+	if err != nil {
+		t.Fatalf("build router: %v", err)
+	}
+
+	return handler, application
 }

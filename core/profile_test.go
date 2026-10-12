@@ -1,7 +1,7 @@
 package core
 
 import (
-	"encoding/base64"
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,11 +26,14 @@ func TestNewAvatar(t *testing.T) {
 	t.Run("image bytes", func(t *testing.T) {
 		avatar := mustAvatar(t, pngSignature)
 
-		if string(avatar.Bytes) != string(pngSignature) {
+		if !bytes.Equal(avatar.Bytes, pngSignature) {
 			t.Fatalf("Bytes = %v, want the raw bytes", avatar.Bytes)
 		}
-		if want := base64.StdEncoding.EncodeToString(pngSignature); avatar.Base64 != want {
-			t.Fatalf("Base64 = %q, want %q", avatar.Base64, want)
+		if avatar.ContentType != "image/png" {
+			t.Fatalf("ContentType = %q, want image/png", avatar.ContentType)
+		}
+		if avatar.ETag() == "" || !strings.HasPrefix(avatar.ETag(), `"`) {
+			t.Fatalf("ETag = %q, want a quoted etag", avatar.ETag())
 		}
 	})
 
@@ -58,8 +61,11 @@ func TestLoadAvatarFile(t *testing.T) {
 		if err != nil {
 			t.Fatalf("LoadAvatarFile() = %v", err)
 		}
-		if want := base64.StdEncoding.EncodeToString(pngSignature); avatar.Base64 != want {
-			t.Fatalf("Base64 = %q, want %q", avatar.Base64, want)
+		if !bytes.Equal(avatar.Bytes, pngSignature) {
+			t.Fatal("Bytes do not match the file contents")
+		}
+		if avatar.ContentType != "image/png" {
+			t.Fatalf("ContentType = %q, want image/png", avatar.ContentType)
 		}
 	})
 
@@ -84,14 +90,18 @@ func TestLoadAvatarFile(t *testing.T) {
 
 func TestNewProfile(t *testing.T) {
 	avatar := mustAvatar(t, pngSignature)
+	site := validSite()
 
 	t.Run("valid", func(t *testing.T) {
-		profile, err := NewProfile("Daveny", avatar)
+		profile, err := NewProfile("Daveny", avatar, site)
 		if err != nil {
 			t.Fatalf("NewProfile() = %v", err)
 		}
 		if profile.Name != "Daveny" {
 			t.Fatalf("Name = %q, want %q", profile.Name, "Daveny")
+		}
+		if profile.Site.ICP != site.ICP {
+			t.Fatalf("Site.ICP = %q, want %q", profile.Site.ICP, site.ICP)
 		}
 		if profile.ETag() == "" || !strings.HasPrefix(profile.ETag(), `"`) {
 			t.Fatalf("ETag = %q, want a quoted etag", profile.ETag())
@@ -102,55 +112,86 @@ func TestNewProfile(t *testing.T) {
 		name    string
 		profile string
 		avatar  Avatar
+		mutate  func(*Site)
 		wantErr string
 	}{
 		{name: "blank name", profile: " ", avatar: avatar, wantErr: "profile name must not be empty"},
 		{name: "empty avatar", profile: "Daveny", avatar: Avatar{}, wantErr: "profile avatar must not be empty"},
+		{name: "invalid site", profile: "Daveny", avatar: avatar, mutate: func(s *Site) { s.ICP = "" }, wantErr: "site icp must not be empty"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := NewProfile(tt.profile, tt.avatar); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+			site := validSite()
+			if tt.mutate != nil {
+				tt.mutate(&site)
+			}
+
+			if _, err := NewProfile(tt.profile, tt.avatar, site); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("NewProfile() = %v, want error containing %q", err, tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestProfileETagTracksNameAndAvatar(t *testing.T) {
+func TestProfileETagTracksItsContent(t *testing.T) {
 	first := mustAvatar(t, pngSignature)
 	second := mustAvatar(t, append(append([]byte{}, pngSignature...), 0x00))
+	site := validSite()
 
-	base, err := NewProfile("Daveny", first)
-	if err != nil {
-		t.Fatalf("NewProfile() = %v", err)
+	build := func(t *testing.T, name string, avatar Avatar, site Site) Profile {
+		t.Helper()
+
+		profile, err := NewProfile(name, avatar, site)
+		if err != nil {
+			t.Fatalf("NewProfile() = %v", err)
+		}
+
+		return profile
 	}
-	same, err := NewProfile("Daveny", first)
-	if err != nil {
-		t.Fatalf("NewProfile() = %v", err)
-	}
-	renamed, err := NewProfile("Daveny Renamed", first)
-	if err != nil {
-		t.Fatalf("NewProfile() = %v", err)
-	}
-	replaced, err := NewProfile("Daveny", second)
-	if err != nil {
-		t.Fatalf("NewProfile() = %v", err)
-	}
+
+	base := build(t, "Daveny", first, site)
+	same := build(t, "Daveny", first, site)
+
+	renamedSite := validSite()
+	renamedSite.ICP = "蜀ICP备2026015939号-2"
+	renamed := build(t, "Daveny Renamed", first, site)
+	replaced := build(t, "Daveny", second, site)
+	refiled := build(t, "Daveny", first, renamedSite)
 
 	if base.ETag() != same.ETag() {
 		t.Fatalf("same input produced different etags: %q vs %q", base.ETag(), same.ETag())
 	}
-	if base.ETag() == renamed.ETag() {
-		t.Fatal("renaming must change the etag")
+	for name, other := range map[string]Profile{
+		"renaming":         renamed,
+		"changing the icp": refiled,
+	} {
+		if base.ETag() == other.ETag() {
+			t.Fatalf("%s must change the etag", name)
+		}
 	}
-	if base.ETag() == replaced.ETag() {
-		t.Fatal("replacing the avatar must change the etag")
+
+	// 头像已经不在档案 JSON 里：换图不该让档案的 ETag 变化，那是 /api/avatar 的事。
+	if base.ETag() != replaced.ETag() {
+		t.Fatal("replacing the avatar must not change the profile etag")
+	}
+}
+
+func TestAvatarETagTracksContent(t *testing.T) {
+	first := mustAvatar(t, pngSignature)
+	same := mustAvatar(t, pngSignature)
+	other := mustAvatar(t, append(append([]byte{}, pngSignature...), 0x00))
+
+	if first.ETag() != same.ETag() {
+		t.Fatalf("same bytes produced different etags: %q vs %q", first.ETag(), same.ETag())
+	}
+	if first.ETag() == other.ETag() {
+		t.Fatal("different bytes must produce different etags")
 	}
 }
 
 func TestProfileNotModified(t *testing.T) {
-	profile, err := NewProfile("Daveny", mustAvatar(t, pngSignature))
+	profile, err := NewProfile("Daveny", mustAvatar(t, pngSignature), validSite())
 	if err != nil {
 		t.Fatalf("NewProfile() = %v", err)
 	}

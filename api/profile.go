@@ -6,12 +6,22 @@ import (
 	"dv-page/httpx"
 )
 
-// 头像 base64 有几百 KB，缓存一天；ETag 保证换图或改名后能立刻失效。
-const profileCacheControl = "public, max-age=86400"
+// 档案与头像都能缓存一天；ETag 保证换内容后旧缓存立刻失效。
+const cacheControlDay = "public, max-age=86400"
 
+// siteResponse 是站点事实，嵌在 profile 里一起下发。
+type siteResponse struct {
+	ICP           string `json:"icp"`
+	ICPURL        string `json:"icpUrl"`
+	CopyrightYear int    `json:"copyrightYear"`
+}
+
+// 头像是二进制资源，单独走 /api/avatar，不塞进 JSON。
 type profileResponse struct {
-	Name   string `json:"name"`
-	Avatar string `json:"avatar"`
+	Name string       `json:"name"`
+	Site siteResponse `json:"site"`
+	// Lang 是本次协商结果，前端据此决定首屏语言。
+	Lang string `json:"lang"`
 }
 
 func (s *server) handleProfile(w http.ResponseWriter, r *http.Request) {
@@ -24,7 +34,7 @@ func (s *server) handleProfile(w http.ResponseWriter, r *http.Request) {
 
 	profile := s.opts.App.Profile()
 
-	w.Header().Set("Cache-Control", profileCacheControl)
+	w.Header().Set("Cache-Control", cacheControlDay)
 	w.Header().Set("ETag", profile.ETag())
 
 	if profile.NotModified(r.Header.Get("If-None-Match")) {
@@ -33,7 +43,12 @@ func (s *server) handleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteJSON(w, s.logger(), http.StatusOK, profileResponse{
-		Name:   profile.Name,
-		Avatar: profile.Avatar.Base64,
+		Name: profile.Name,
+		Site: siteResponse{
+			ICP:           profile.Site.ICP,
+			ICPURL:        profile.Site.ICPURL,
+			CopyrightYear: profile.Site.CopyrightYear,
+		},
+		Lang: string(lang),
 	})
 }

@@ -41,20 +41,24 @@ just serve     # 本机跑完整产物（监听 127.0.0.1:8080）
 
 ## 接口
 
-| 方法 | 路径           | 说明                                                                     |
-| ---- | -------------- | ------------------------------------------------------------------------ |
-| GET  | `/api/profile` | `{name, avatar}`，`avatar` 是头像图片的 base64；带 ETag 的长缓存          |
-| GET  | `/api/site`    | `{icp, icpUrl, copyrightYear, lang}`，`lang` 是协商结果                   |
-| GET  | `/livez`       | 进程存活，不查依赖、不记日志                                             |
-| GET  | `/readyz`      | 就绪（内嵌前端产物在不在），支持 `?token=`，每次调用记一条审计日志        |
-| GET  | `/*`           | 前端静态文件；`assets/` 长缓存，其余 `no-cache`，无扩展名路径回退入口     |
+| 方法 | 路径           | 说明                                                                                 |
+| ---- | -------------- | ------------------------------------------------------------------------------------ |
+| GET  | `/api/profile` | `{name, site:{icp, icpUrl, copyrightYear}, lang}`；带 ETag 的长缓存，一次拿全页数据   |
+| GET  | `/api/avatar`  | 头像原图（二进制流）；带 ETag 与 `Accept-Ranges`，支持 304 与 Range                    |
+| GET  | `/livez`       | 进程存活，不查依赖、不记日志                                                         |
+| GET  | `/readyz`      | 就绪（内嵌前端产物在不在），支持 `?token=`，每次调用记一条审计日志                    |
+| GET  | `/*`           | 前端静态文件；`assets/` 长缓存，其余 `no-cache`，无扩展名路径回退入口                 |
 
 ```bash
 curl -s localhost:8080/api/profile | head -c 120
-# {"name":"Daveny","avatar":"/9j/4AAQSkZJRgABAQAAAQABAAD..."}
-curl -s localhost:8080/api/site
-# {"icp":"蜀ICP备2026015939号-1","icpUrl":"https://beian.miit.gov.cn/","copyrightYear":2026,"lang":"zh-CN"}
+# {"name":"Daveny","site":{"icp":"蜀ICP备2026015939号-1","icpUrl":"https://beian.miit.gov.cn/",...
+curl -sD- -o /dev/null localhost:8080/api/avatar
+# Content-Type: image/jpeg / Content-Length: 483348 / ETag: "03899f23…" / Accept-Ranges: bytes
 ```
+
+头像不塞进 JSON：base64 会把 483 KiB 撑成 645 KiB，还要在服务端多一次编码。分成二进制资源后，页面就是普通的 `<img src="/api/avatar">`，浏览器按图片缓存（ETag + `max-age=86400`），服务端只做一次 `ServeContent`（顺带白拿 Range 与 304）。
+
+`SITE_ICP` 这类配置**不是构建期变量**：前端产物是静态的（Vite 只打包，不做环境替换），后端启动时读环境变量，页面运行时从 `/api/profile` 拿到 `site.icp` 再渲染到页脚。
 
 头像在启动时读进内存：`MY_NAME` 定名字，`AVATAR_FILE` 指头像文件（留空就用 `builtin/avatar.jpg` 那张内置图）。应用无状态、不写文件，换头像只要挂一个只读文件重启，不用重建镜像：
 
@@ -64,20 +68,22 @@ podman run -e MY_NAME=Daveny -e AVATAR_FILE=/etc/dv-page/avatar.png -v ./avatar.
 
 ## 环境变量
 
-| 变量名                | 默认值                            | 说明                                      |
-| --------------------- | --------------------------------- | ----------------------------------------- |
-| `HOST` / `PORT`       | `127.0.0.1` / `8080`              | 监听地址与端口                            |
-| `READYZ_TOKEN`        | 空                                | 非空时 `/readyz` 必须带 `?token=`          |
-| `TRUSTED_PROXIES`     | `127.0.0.1/32,::1/128`            | 可信反代段，决定是否采信 `X-Forwarded-For` |
-| `TZ`                  | 容器不给就 UTC                    | 日志时间戳时区                            |
-| `GOMEMLIMIT`          | 空                                | Go 运行时直接读取                          |
-| `MY_NAME`             | `Daveny`                          | 主页展示的名字（也用作版权署名）          |
-| `AVATAR_FILE`         | 空（用内置 `builtin/avatar.jpg`） | 头像文件路径，启动时读进内存              |
-| `SITE_ICP`            | `蜀ICP备2026015939号-1`           | 备案号                                    |
-| `SITE_ICP_URL`        | `https://beian.miit.gov.cn/`      | 备案号链接，必须是绝对 http(s) URL        |
-| `SITE_COPYRIGHT_YEAR` | 当年                              | 版权年份，1970–9999                       |
+| 变量名                   | 默认值                            | 说明                                          |
+| ------------------------ | --------------------------------- | --------------------------------------------- |
+| `HOST` / `PORT`          | `127.0.0.1` / `8080`              | 监听地址与端口                                |
+| `MAX_API_CONCURRENCY`    | `128`                             | API（含 `/livez`、`/readyz`）在途上限          |
+| `MAX_STATIC_CONCURRENCY` | `64`                              | 静态文件在途上限，与 API 使用独立槽位          |
+| `READYZ_TOKEN`           | 空                                | 非空时 `/readyz` 必须带 `?token=`              |
+| `TRUSTED_PROXIES`        | `127.0.0.1/32,::1/128`            | 可信反代段，决定是否采信 `X-Forwarded-For`    |
+| `TZ`                     | 容器不给就 UTC                    | 日志时间戳时区                                |
+| `GOMEMLIMIT`             | 空                                | Go 运行时直接读取                             |
+| `MY_NAME`                | `Daveny`                          | 主页展示的名字（也用作版权署名）              |
+| `AVATAR_FILE`            | 空（用内置 `builtin/avatar.jpg`） | 头像文件路径，启动时读进内存                  |
+| `SITE_ICP`               | `蜀ICP备2026015939号-1`           | 备案号                                        |
+| `SITE_ICP_URL`           | `https://beian.miit.gov.cn/`      | 备案号链接，必须是绝对 http(s) URL            |
+| `SITE_COPYRIGHT_YEAR`    | 当年                              | 版权年份，1970–9999                           |
 
-配置在启动时一次性校验，不合法就直接起不来（`AVATAR_FILE` 读不到也是）。应用本身不写任何文件，没有 `DATA_DIR` 这类目录。页面与接口的设计写在 [DESIGN.md](DESIGN.md)。
+配置在启动时一次性校验，不合法就直接起不来（`AVATAR_FILE` 读不到、并发上限 < 1 也是）。应用本身不写任何文件，没有 `DATA_DIR` 这类目录。页面与接口的设计写在 [DESIGN.md](DESIGN.md)。
 
 ## 测试与覆盖率
 
@@ -85,13 +91,13 @@ podman run -e MY_NAME=Daveny -e AVATAR_FILE=/etc/dv-page/avatar.png -v ./avatar.
 
 | 包                  | 覆盖率 |
 | ------------------- | ------ |
-| `dv-page`（接线）   | 34.0%  |
-| `dv-page/api`       | 91.7%  |
-| `dv-page/app`       | 96.8%  |
-| `dv-page/core`      | 88.7%  |
+| `dv-page`（接线）   | 26.2%  |
+| `dv-page/api`       | 93.4%  |
+| `dv-page/app`       | 95.8%  |
+| `dv-page/core`      | 97.6%  |
 | `dv-page/httpx`     | 93.9%  |
 | `dv-page/i18n`      | 97.4%  |
-| 全模块合计          | 76.6%  |
+| 全模块合计          | 74.2%  |
 
 前端改动后用 `tools/shot.mjs` 实跑浏览器截图并转发控制台错误（无头 Chrome 默认 `en-US`，验中文要显式设 `localStorage.lang`）：
 
@@ -102,6 +108,26 @@ node tools/shot.mjs --url http://127.0.0.1:8080/ --out .shots/hero.png \
 ```
 
 页面里有调试入口 `window.__app`，可用 CDP 直接读 `state()`。
+
+## 资源占用
+
+实测环境：8 vCPU / 12 GiB 的容器、loopback 回环、压测端与被测进程同机（吞吐只作数量级参考）。压测脚本与微基准是一次性的，放在 `.shots/`（`measure.sh` / `probe.sh` / `load/` / `alloc/`），不入库。
+
+| 项目 | 实测 |
+| ---- | ---- |
+| 二进制 | `linux/amd64` 8.75 MiB、`linux/arm64` 8.25 MiB（内嵌 `bg.jpg` 1.77 MiB、头像 0.46 MiB、JS 70 KiB、CSS 8 KiB） |
+| 启动 | 4–8 ms 到 `/livez` 可应答 |
+| 空闲 | RSS 9.4 MB（`VmHWM` = `VmRSS`） |
+| 峰值 RSS | 空转 9.4 MB；`/api/profile`（134 B JSON）c=128 → 21 MB、c=512 → 43 MB、c=1024 → 75 MB；`/api/avatar`（483 KB）c=32 → 19 MB、c=128 → 28 MB、c=512 → 57 MB、c=1024 → 95 MB；1.7 MB 静态图 c=32 → 22 MB、c=512 → 55 MB |
+| 页面级洪峰 | 头像 c=128 + 背景图 c=64 + 档案 c=32 同时打（两组名额全占满）→ 峰值 **40 MB**，0 个 503 |
+| CPU | `/livez` 33 µs/请求；`/api/profile` 44 µs；`/api/avatar` 0.31 ms；`/readyz`（带审计日志）89 µs |
+| 单次访问流量 | 首访 2.23 MiB（背景图 1.77 MiB + 头像 483 KiB + JS 71 KiB + CSS 8 KiB）；24 h 内重访约 1 KB（`/api/profile` 与 `/api/avatar` 命中 ETag 回 304，`assets/` 是 immutable 长缓存） |
+
+峰值由三部分决定：9 MB 底噪 + 在途请求数 × 单响应开销 + 连接数。把头像从 JSON 里拆成 `/api/avatar` 之后，单响应开销基本消失（`/api/profile` 只剩 134 B，头像是 `ServeContent` 的 32 KB 拷贝缓冲），所以**在两组名额允许的范围内**（API 128 + 静态 64）页面级洪峰只到 40 MB —— 这正是 `requests.memory: 64Mi` / `limits.memory: 64Mi` / `GOMEMLIMIT: 64MiB` 这份配置的依据。
+
+超出名额的部分不受信号量保护：连接数本身每个要 40–75 KB（`/api/avatar` c=1024 时 95 MB 里大头是 1024 条连接，而不是在途请求）。也就是说 64Mi 的预算是按「最多约 192 个在途请求 + 一小把连接」算的；如果有人把连接数打到四位数，仍会超——那属于反代该做的连接数限制。
+
+两组上限是硬顶，超出的请求立刻 503（带 `Retry-After`），槽位互不挤占：`/api/avatar` c=1024 时 1525 个 503，而静态资源照常返回完整 1.7 MB。按约定 `/livez`、`/readyz` 算在 API 组内，所以 API 组满时探针也会 503。
 
 ## 部署
 

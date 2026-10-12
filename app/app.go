@@ -22,7 +22,6 @@ type Config struct {
 // App 是用例层：启动时一次性把关、把头像读进内存，之后只读。
 type App struct {
 	profile core.Profile
-	site    core.Site
 	assets  fs.FS
 }
 
@@ -36,11 +35,8 @@ func New(cfg Config) (*App, error) {
 		return nil, err
 	}
 
-	profile, err := core.NewProfile(cfg.Name, avatar)
+	profile, err := core.NewProfile(cfg.Name, avatar, cfg.Site)
 	if err != nil {
-		return nil, err
-	}
-	if err := cfg.Site.Validate(); err != nil {
 		return nil, err
 	}
 	if cfg.Assets == nil {
@@ -55,7 +51,7 @@ func New(cfg Config) (*App, error) {
 		return nil, errors.New("frontend assets are empty")
 	}
 
-	return &App{profile: profile, site: cfg.Site, assets: cfg.Assets}, nil
+	return &App{profile: profile, assets: cfg.Assets}, nil
 }
 
 func loadAvatar(cfg Config) (core.Avatar, error) {
@@ -71,14 +67,9 @@ func loadAvatar(cfg Config) (core.Avatar, error) {
 	return avatar, nil
 }
 
-// Profile 是主页上「人」的部分（名字与头像）；头像在启动时就已读进内存。
+// Profile 是主页要的全部事实；名字、头像、备案在启动时就已定好并读进内存。
 func (a *App) Profile() core.Profile {
 	return a.profile
-}
-
-// SiteInfo 是主页上「站点」的部分；用哪种语言呈现由 HTTP 层决定。
-func (a *App) SiteInfo() core.Site {
-	return a.site
 }
 
 // Ready 是 /readyz 的判据。应用没有外部依赖，唯一要确认的是内嵌的前端产物还在：

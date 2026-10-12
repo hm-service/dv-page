@@ -1,52 +1,68 @@
+import { isLanguage, type Language } from '../i18n'
+
+/** 头像是二进制资源，交给浏览器按普通图片加载与缓存（ETag 在服务端）。 */
+export const avatarPath = '/api/avatar'
+
+export interface SiteInfo {
+  icp: string
+  icpUrl: string
+  copyrightYear: number
+}
+
 export interface Profile {
   name: string
-  /** 头像的对象 URL：由接口给的 base64 解出来，页面销毁时要 revoke。 */
-  avatarUrl: string
+  site: SiteInfo
+  /** 服务端按 Accept-Language / ?lang= 协商出来的语言。 */
+  lang: Language
 }
 
-interface RawProfile {
-  name: string
-  avatar: string
+function parseSiteInfo(payload: unknown): SiteInfo {
+  if (typeof payload !== 'object' || payload === null) {
+    throw new Error('profile.site is not an object')
+  }
+
+  const record = payload as Record<string, unknown>
+  const { icp, icpUrl, copyrightYear } = record
+
+  if (typeof icp !== 'string' || icp === '') {
+    throw new Error('profile.site has no icp')
+  }
+  if (typeof icpUrl !== 'string' || icpUrl === '') {
+    throw new Error('profile.site has no icpUrl')
+  }
+  if (typeof copyrightYear !== 'number' || !Number.isInteger(copyrightYear)) {
+    throw new Error('profile.site has no copyrightYear')
+  }
+
+  return { icp, icpUrl, copyrightYear }
 }
 
-function parseProfile(payload: unknown): RawProfile {
+function parseProfile(payload: unknown): Profile {
   if (typeof payload !== 'object' || payload === null) {
     throw new Error('profile response is not an object')
   }
 
   const record = payload as Record<string, unknown>
-  const { name, avatar } = record
+  const { name, site, lang } = record
 
   if (typeof name !== 'string' || name === '') {
     throw new Error('profile has no name')
   }
-  if (typeof avatar !== 'string' || avatar === '') {
-    throw new Error('profile has no avatar')
+  if (!isLanguage(lang)) {
+    throw new Error(`profile has unsupported lang ${String(lang)}`)
   }
 
-  return { name, avatar }
+  return { name, site: parseSiteInfo(site), lang }
 }
 
-/**
- * base64 → 对象 URL。不解码图片格式：交给浏览器按内容嗅探，换 PNG/WebP 都不用改前端。
- */
-function toObjectUrl(base64: string): string {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index)
-  }
-
-  return URL.createObjectURL(new Blob([bytes]))
-}
-
-export async function fetchProfile(): Promise<Profile> {
-  const response = await fetch('/api/profile', { headers: { accept: 'application/json' } })
+export async function fetchProfile(preferred: Language | null): Promise<Profile> {
+  const query = preferred ? `?lang=${encodeURIComponent(preferred)}` : ''
+  const response = await fetch(`/api/profile${query}`, {
+    headers: { accept: 'application/json' },
+  })
   if (!response.ok) {
     throw new Error(`GET /api/profile responded ${response.status}`)
   }
 
-  const raw = parseProfile(await response.json())
-
-  return { name: raw.name, avatarUrl: toObjectUrl(raw.avatar) }
+  return parseProfile(await response.json())
 }

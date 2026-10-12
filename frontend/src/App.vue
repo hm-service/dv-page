@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { fetchProfile, type Profile } from './api/profile'
-import { fetchSiteInfo, type SiteInfo } from './api/site'
 import DetailsSection from './components/DetailsSection.vue'
 import HeroSection from './components/HeroSection.vue'
 import { prefersReducedMotion } from './composables/useHeroSequence'
@@ -11,7 +10,6 @@ import { otherLanguage, t, type Language } from './i18n'
 import { detectBrowserLanguage, readStoredLanguage, storeLanguage } from './i18n/storage'
 
 const profile = ref<Profile | null>(null)
-const site = ref<SiteInfo | null>(null)
 const loadFailed = ref(false)
 /** 用户选过的语言优先；没选过则先按浏览器猜，拿到接口结果后再以服务端协商为准。 */
 const lang = ref<Language>(readStoredLanguage() ?? detectBrowserLanguage())
@@ -39,8 +37,7 @@ onMounted(async () => {
   exposeDebug({
     state: () => ({
       name: profile.value?.name ?? null,
-      avatarLoaded: profile.value !== null,
-      site: site.value,
+      site: profile.value?.site ?? null,
       lang: lang.value,
       view: view.value,
     }),
@@ -50,25 +47,15 @@ onMounted(async () => {
 
   const stored = readStoredLanguage()
   try {
-    const [fetchedProfile, fetchedSite] = await Promise.all([
-      fetchProfile(),
-      fetchSiteInfo(stored),
-    ])
+    const fetched = await fetchProfile(stored)
 
-    profile.value = fetchedProfile
-    site.value = fetchedSite
+    profile.value = fetched
     if (!stored) {
-      lang.value = fetchedSite.lang
+      lang.value = fetched.lang
     }
   } catch (error) {
     loadFailed.value = true
     console.error(error)
-  }
-})
-
-onBeforeUnmount(() => {
-  if (profile.value) {
-    URL.revokeObjectURL(profile.value.avatarUrl)
   }
 })
 </script>
@@ -79,17 +66,16 @@ onBeforeUnmount(() => {
     :class="{ 'is-second-view': view === 1 }"
     :data-current-view="view"
   >
-    <template v-if="profile && site">
+    <template v-if="profile">
       <HeroSection
         :name="profile.name"
-        :avatar-url="profile.avatarUrl"
         :lang="lang"
         @next="showView(1)"
         @switch-language="setLanguage(otherLanguage(lang))"
       />
       <DetailsSection
         :active="view === 1"
-        :site="site"
+        :site="profile.site"
         :name="profile.name"
         :lang="lang"
       />

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -79,16 +80,33 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	maxAPI, err := positiveEnvInt("MAX_API_CONCURRENCY", 128)
+	if err != nil {
+		return err
+	}
+
+	maxStatic, err := positiveEnvInt("MAX_STATIC_CONCURRENCY", 64)
+	if err != nil {
+		return err
+	}
+
 	address := net.JoinHostPort(env("HOST", "127.0.0.1"), env("PORT", "8080"))
+	handler, err := api.NewRouter(api.Options{
+		App:                  application,
+		Assets:               assets,
+		TrustedProxies:       trustedProxies,
+		ReadyToken:           os.Getenv("READYZ_TOKEN"),
+		MaxAPIConcurrency:    maxAPI,
+		MaxStaticConcurrency: maxStatic,
+		Logger:               logger,
+	})
+	if err != nil {
+		return err
+	}
+
 	server := &http.Server{
-		Addr: address,
-		Handler: api.NewRouter(api.Options{
-			App:            application,
-			Assets:         assets,
-			TrustedProxies: trustedProxies,
-			ReadyToken:     os.Getenv("READYZ_TOKEN"),
-			Logger:         logger,
-		}),
+		Addr:              address,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -107,6 +125,8 @@ func run(logger *slog.Logger) error {
 		"address", address,
 		"name", application.Profile().Name,
 		"avatar_bytes", len(application.Profile().Avatar.Bytes),
+		"max_api_concurrency", maxAPI,
+		"max_static_concurrency", maxStatic,
 	)
 
 	select {
@@ -143,6 +163,19 @@ func envInt(key string, fallback int) (int, error) {
 	value, err := strconv.Atoi(raw)
 	if err != nil {
 		return 0, errors.New("env " + key + " must be an integer, got " + strconv.Quote(raw))
+	}
+
+	return value, nil
+}
+
+// positiveEnvInt 用于并发上限一类的配置：配成 0 或负数会让信号量彻底卡死，必须当场拒绝。
+func positiveEnvInt(key string, fallback int) (int, error) {
+	value, err := envInt(key, fallback)
+	if err != nil {
+		return 0, err
+	}
+	if value < 1 {
+		return 0, fmt.Errorf("env %s must be at least 1, got %d", key, value)
 	}
 
 	return value, nil

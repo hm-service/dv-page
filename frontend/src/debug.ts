@@ -1,9 +1,8 @@
-import type { SiteInfo } from './api/site'
+import type { SiteInfo } from './api/profile'
 import type { Language } from './i18n'
 
 export interface AppDebugState {
   name: string | null
-  avatarLoaded: boolean
   site: SiteInfo | null
   lang: Language
   view: number

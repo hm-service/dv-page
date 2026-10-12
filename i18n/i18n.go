@@ -22,6 +22,7 @@ var messages = map[Language]map[string]string{
 		"error.internal":           "服务器内部错误",
 		"error.method-not-allowed": "请求方法不被允许",
 		"error.not-found":          "资源不存在",
+		"error.too-many-requests":  "请求过多，请稍后重试",
 		"readyz.not-ready":         "未就绪：%s",
 	},
 	English: {
@@ -29,6 +30,7 @@ var messages = map[Language]map[string]string{
 		"error.internal":           "internal server error",
 		"error.method-not-allowed": "request method not allowed",
 		"error.not-found":          "resource not found",
+		"error.too-many-requests":  "too many requests, please retry later",
 		"readyz.not-ready":         "not ready: %s",
 	},
 }

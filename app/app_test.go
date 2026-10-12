@@ -1,7 +1,7 @@
 package app
 
 import (
-	"encoding/base64"
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,14 +57,17 @@ func TestNew(t *testing.T) {
 		if profile.Name != "Daveny" {
 			t.Fatalf("Profile().Name = %q, want %q", profile.Name, "Daveny")
 		}
-		if want := base64.StdEncoding.EncodeToString(builtin.Avatar()); profile.Avatar.Base64 != want {
-			t.Fatal("Profile().Avatar.Base64 does not match the builtin avatar")
+		if !bytes.Equal(profile.Avatar.Bytes, builtin.Avatar()) {
+			t.Fatal("Profile().Avatar.Bytes do not match the builtin avatar")
+		}
+		if profile.Avatar.ContentType == "" {
+			t.Fatal("Profile().Avatar.ContentType is empty")
 		}
 		if profile.ETag() == "" {
 			t.Fatal("Profile().ETag() is empty")
 		}
-		if got := application.SiteInfo().ICP; got != "蜀ICP备2026015939号-1" {
-			t.Fatalf("SiteInfo().ICP = %q, want the configured icp", got)
+		if got := profile.Site.ICP; got != "蜀ICP备2026015939号-1" {
+			t.Fatalf("Profile().Site.ICP = %q, want the configured icp", got)
 		}
 	})
 
@@ -105,8 +108,8 @@ func TestNew(t *testing.T) {
 			t.Fatalf("New() = %v", err)
 		}
 
-		if got, want := application.Profile().Avatar.Base64, base64.StdEncoding.EncodeToString(replacement); got != want {
-			t.Fatalf("Profile().Avatar.Base64 = %q, want the replacement avatar", got)
+		if got := application.Profile().Avatar.Bytes; !bytes.Equal(got, replacement) {
+			t.Fatalf("Profile().Avatar.Bytes = %v, want the replacement avatar", got)
 		}
 	})
 

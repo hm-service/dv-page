@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -16,12 +17,12 @@ type sitePayload struct {
 	ICP           string `json:"icp"`
 	ICPURL        string `json:"icpUrl"`
 	CopyrightYear int    `json:"copyrightYear"`
-	Lang          string `json:"lang"`
 }
 
 type profilePayload struct {
-	Name   string `json:"name"`
-	Avatar string `json:"avatar"`
+	Name string      `json:"name"`
+	Site sitePayload `json:"site"`
+	Lang string      `json:"lang"`
 }
 
 type errorPayload struct {
@@ -49,7 +50,7 @@ func decode[T any](t *testing.T, recorder *httptest.ResponseRecorder) T {
 	return payload
 }
 
-func TestSiteEndpoint(t *testing.T) {
+func TestProfileEndpoint(t *testing.T) {
 	handler, _ := testenv.Server(t, testenv.Options{})
 
 	tests := []struct {
@@ -58,11 +59,11 @@ func TestSiteEndpoint(t *testing.T) {
 		accept   string
 		wantLang string
 	}{
-		{name: "default language", target: "/api/site", wantLang: "zh-CN"},
-		{name: "accept language english", target: "/api/site", accept: "en-US,en;q=0.9", wantLang: "en"},
-		{name: "accept language chinese", target: "/api/site", accept: "zh-CN,zh;q=0.9", wantLang: "zh-CN"},
-		{name: "query wins over header", target: "/api/site?lang=en", accept: "zh-CN", wantLang: "en"},
-		{name: "unsupported query falls back", target: "/api/site?lang=fr", accept: "en", wantLang: "en"},
+		{name: "default language", target: "/api/profile", wantLang: "zh-CN"},
+		{name: "accept language english", target: "/api/profile", accept: "en-US,en;q=0.9", wantLang: "en"},
+		{name: "accept language chinese", target: "/api/profile", accept: "zh-CN,zh;q=0.9", wantLang: "zh-CN"},
+		{name: "query wins over header", target: "/api/profile?lang=en", accept: "zh-CN", wantLang: "en"},
+		{name: "unsupported query falls back", target: "/api/profile?lang=fr", accept: "en", wantLang: "en"},
 	}
 
 	for _, tt := range tests {
@@ -77,57 +78,26 @@ func TestSiteEndpoint(t *testing.T) {
 				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 			}
 
-			payload := decode[sitePayload](t, recorder)
-			if payload.ICP == "" || payload.ICPURL == "" {
-				t.Fatalf("payload = %+v, want the site facts", payload)
+			payload := decode[profilePayload](t, recorder)
+			if payload.Name != testenv.Name() {
+				t.Fatalf("name = %q, want %q", payload.Name, testenv.Name())
 			}
-			if payload.CopyrightYear != 2026 {
-				t.Fatalf("copyrightYear = %d, want 2026", payload.CopyrightYear)
+			if payload.Site.ICP != testenv.Site().ICP || payload.Site.ICPURL != testenv.Site().ICPURL {
+				t.Fatalf("site = %+v, want the configured filing facts", payload.Site)
+			}
+			if payload.Site.CopyrightYear != 2026 {
+				t.Fatalf("copyrightYear = %d, want 2026", payload.Site.CopyrightYear)
 			}
 			if payload.Lang != tt.wantLang {
 				t.Fatalf("lang = %q, want %q", payload.Lang, tt.wantLang)
 			}
+			if etag := recorder.Header().Get("ETag"); etag == "" {
+				t.Fatal("ETag header is missing")
+			}
+			if cache := recorder.Header().Get("Cache-Control"); !strings.Contains(cache, "max-age=86400") {
+				t.Fatalf("cache-control = %q, want a long max-age", cache)
+			}
 		})
-	}
-}
-
-func TestSiteEndpointRejectsOtherMethods(t *testing.T) {
-	handler, _ := testenv.Server(t, testenv.Options{})
-
-	request := httptest.NewRequest(http.MethodPost, "/api/site", strings.NewReader("{}"))
-	request.Header.Set("Accept-Language", "en")
-
-	recorder := do(handler, request)
-	if recorder.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
-	}
-
-	payload := decode[errorPayload](t, recorder)
-	if payload.Error.Key != "error.method-not-allowed" || payload.Error.Message != "request method not allowed" {
-		t.Fatalf("error = %+v, want the localized method error", payload.Error)
-	}
-}
-
-func TestProfileEndpoint(t *testing.T) {
-	handler, _ := testenv.Server(t, testenv.Options{})
-
-	recorder := do(handler, httptest.NewRequest(http.MethodGet, "/api/profile", nil))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
-	}
-
-	payload := decode[profilePayload](t, recorder)
-	if payload.Name != testenv.Name() {
-		t.Fatalf("name = %q, want %q", payload.Name, testenv.Name())
-	}
-	if payload.Avatar != testenv.AvatarBase64() {
-		t.Fatal("avatar is not the base64 of the served avatar bytes")
-	}
-	if etag := recorder.Header().Get("ETag"); etag == "" {
-		t.Fatal("ETag header is missing")
-	}
-	if cache := recorder.Header().Get("Cache-Control"); !strings.Contains(cache, "max-age=86400") {
-		t.Fatalf("cache-control = %q, want a long max-age", cache)
 	}
 }
 
@@ -159,11 +129,21 @@ func TestProfileEndpointHonoursConditionalRequests(t *testing.T) {
 }
 
 func TestProfileEndpointUsesTheConfiguredName(t *testing.T) {
-	handler, _ := testenv.Server(t, testenv.Options{Name: "Hiro"})
+	// 名字里塞满需要转义的字符：响应是手写骨架 + 流式写出，转义不能靠运气。
+	const name = `Daveny "quoted" <b>&amp;</b> \ / 中文 🎉`
 
-	payload := decode[profilePayload](t, do(handler, httptest.NewRequest(http.MethodGet, "/api/profile", nil)))
-	if payload.Name != "Hiro" {
-		t.Fatalf("name = %q, want %q", payload.Name, "Hiro")
+	handler, _ := testenv.Server(t, testenv.Options{Name: name})
+
+	recorder := do(handler, httptest.NewRequest(http.MethodGet, "/api/profile", nil))
+	payload := decode[profilePayload](t, recorder)
+	if payload.Name != name {
+		t.Fatalf("name = %q, want %q", payload.Name, name)
+	}
+	if strings.Contains(recorder.Body.String(), `"avatar"`) {
+		t.Fatal("the profile body must not carry the avatar any more (see /api/avatar)")
+	}
+	if !strings.Contains(recorder.Body.String(), `"site":{"icp":`) {
+		t.Fatalf("body = %q, want the site block", recorder.Body.String()[:120])
 	}
 }
 
@@ -290,6 +270,13 @@ func TestStaticFiles(t *testing.T) {
 			wantBody:   "error.not-found",
 		},
 		{
+			name:       "unknown api path never falls back to the page",
+			method:     http.MethodGet,
+			target:     "/api/legacy",
+			wantStatus: http.StatusNotFound,
+			wantBody:   "error.not-found",
+		},
+		{
 			name:          "head has no body",
 			method:        http.MethodHead,
 			target:        "/",
@@ -340,7 +327,6 @@ func TestPlaceholderDistKeepsTheApiAlive(t *testing.T) {
 		target     string
 		wantStatus int
 	}{
-		{name: "api works", target: "/api/site", wantStatus: http.StatusOK},
 		{name: "profile works", target: "/api/profile", wantStatus: http.StatusOK},
 		{name: "entry page missing", target: "/", wantStatus: http.StatusNotFound},
 		{name: "deep link missing", target: "/some/link", wantStatus: http.StatusNotFound},
@@ -414,4 +400,58 @@ func TestAccessLog(t *testing.T) {
 			t.Fatalf("log = %q, want the path without the query", line)
 		}
 	})
+}
+
+func TestAvatarEndpoint(t *testing.T) {
+	handler, _ := testenv.Server(t, testenv.Options{})
+	want := testenv.AvatarBytes()
+
+	recorder := do(handler, httptest.NewRequest(http.MethodGet, "/api/avatar", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	if contentType := recorder.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "image/") {
+		t.Fatalf("content-type = %q, want an image type", contentType)
+	}
+	if got := recorder.Body.Bytes(); !bytes.Equal(got, want) {
+		t.Fatalf("body is %d bytes, want the %d bytes of the served avatar", len(got), len(want))
+	}
+	if length := recorder.Header().Get("Content-Length"); length != strconv.Itoa(len(want)) {
+		t.Fatalf("content-length = %q, want %d", length, len(want))
+	}
+
+	etag := recorder.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("ETag header is missing")
+	}
+
+	conditional := httptest.NewRequest(http.MethodGet, "/api/avatar", nil)
+	conditional.Header.Set("If-None-Match", etag)
+	if code := do(handler, conditional).Code; code != http.StatusNotModified {
+		t.Fatalf("status = %d, want %d for a matching etag", code, http.StatusNotModified)
+	}
+}
+
+func TestAvatarEndpointSupportsRanges(t *testing.T) {
+	handler, _ := testenv.Server(t, testenv.Options{})
+
+	request := httptest.NewRequest(http.MethodGet, "/api/avatar", nil)
+	request.Header.Set("Range", "bytes=0-3")
+	recorder := do(handler, request)
+
+	if recorder.Code != http.StatusPartialContent {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusPartialContent)
+	}
+	if got, want := recorder.Body.Bytes(), testenv.AvatarBytes()[:4]; !bytes.Equal(got, want) {
+		t.Fatalf("range body = %v, want the first 4 bytes %v", got, want)
+	}
+}
+
+func TestAvatarEndpointRejectsOtherMethods(t *testing.T) {
+	handler, _ := testenv.Server(t, testenv.Options{})
+
+	recorder := do(handler, httptest.NewRequest(http.MethodPost, "/api/avatar", strings.NewReader("{}")))
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
+	}
 }
