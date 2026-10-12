@@ -1,0 +1,57 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body,
+html {
+    height: 100%;
+    /* 两屏由 .page-stack 整体平移，页面自身不滚 */
+    overflow: hidden;
+}
+
+body {
+    background: #020617;
+    color: #e2e8f0;
+    font-family: "PingFang SC", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+.page-body {
+    height: 100%;
+    overflow: hidden;
+}
+
+#app {
+    height: 100%;
+}
+
+.page-stack {
+    height: 200vh;
+    width: 100%;
+    transform: translateY(0);
+    transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: transform;
+}
+
+.page-stack.is-second-view {
+    transform: translateY(-100vh);
+}
+
+.view-panel {
+    position: relative;
+    height: 100vh;
+    width: 100%;
+}
+
+.view-center {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .page-stack {
+        transition: none;
+    }
+}

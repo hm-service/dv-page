@@ -1,0 +1,74 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: env
+data:
+    TZ: "Asia/Shanghai"
+    HOST: "0.0.0.0"
+    PORT: "8080"
+    READYZ_TOKEN: "your_readyz_token"
+    TRUSTED_PROXIES: "127.0.0.1/32,::1/128,10.89.2.0/24"
+    GOMEMLIMIT: "128MiB"
+    MY_NAME: "Daveny"
+    # 换头像：自己挂一个只读文件（ConfigMap / hostPath / 自制镜像都行）再打开这一行；
+    # 不设置就用二进制里的内置头像。
+    # AVATAR_FILE: "/etc/dv-page/avatar.jpg"
+    SITE_ICP: "蜀ICP备2026015939号-1"
+    SITE_ICP_URL: "https://beian.miit.gov.cn/"
+
+---
+apiVersion: v1
+kind: Pod
+metadata:
+    name: dv-page
+    labels:
+        app: dv-page
+spec:
+    restartPolicy: Always
+    terminationGracePeriodSeconds: 30
+
+    containers:
+        - name: app
+          image: ghcr.io/hm-service/dv-page:latest
+          imagePullPolicy: Always
+
+          # 应用无状态：不写文件、不需要卷，根文件系统只读
+          securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                  drop:
+                      - ALL
+
+          envFrom:
+              - configMapRef:
+                    name: env
+          ports:
+              - name: http
+                containerPort: 8080
+                protocol: TCP
+
+          resources:
+              requests:
+                  memory: 64Mi
+              limits:
+                  memory: 256Mi
+
+          livenessProbe:
+              httpGet:
+                  path: /livez
+                  port: http
+              initialDelaySeconds: 5
+              periodSeconds: 30
+              timeoutSeconds: 3
+              failureThreshold: 3
+
+          readinessProbe:
+              httpGet:
+                  path: /readyz?token=your_readyz_token
+                  port: http
+              initialDelaySeconds: 5
+              periodSeconds: 30
+              timeoutSeconds: 3
+              failureThreshold: 3

@@ -1,34 +1,26 @@
-# If you prefer the allow list template instead of the deny list, see community template:
-# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# 约定：本地 / 临时目录一律以 . 开头（.github/ 是唯一例外，它是真正的源码）
 
-# Test binary, built with `go test -c`
-*.test
+# 构建产物（just build 的输出都在 .dist/）
+/.dist/
 
-# Code coverage profiles and other test artifacts
-*.out
-coverage.*
-*.coverprofile
-profile.cov
+# Go 缓存（默认在 $HOME；万一临时重定向到仓库里，也别提交）
+/.go-build/
+/.go-mod-cache/
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# pnpm 内容寻址存储（默认位置不可写时会落到仓库里）
+/.pnpm-store/
 
-# Go workspace file
-go.work
-go.work.sum
+# 参考项目（本地 clone，只查阅、不修改）
+/.ref/
 
-# env file
-.env
+# 验证截图与本机临时脚本；要进 README 的图挪到 docs/
+/.shots/
 
-# Editor/IDE
-# .idea/
-# .vscode/
+# 换实现语言时归档的旧版本，只作参考、不再维护
+/.prototype/
 
-/dist/
+# agent / 编辑器 / 语言运行时自带的目录
+/.agents/
+/.claude/
+/.codex/
+/.venv/
