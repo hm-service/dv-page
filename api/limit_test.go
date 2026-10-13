@@ -80,8 +80,11 @@ func TestLimiterRejectsWhenSaturated(t *testing.T) {
 		t.Fatal("Retry-After header is missing")
 	}
 	body := recorder.Body.String()
-	if !strings.Contains(body, "error.too-many-requests") || !strings.Contains(body, "too many requests") {
-		t.Fatalf("body = %q, want the localized error", body)
+	if !strings.Contains(body, `"detail":"too many requests`) {
+		t.Fatalf("body = %q, want the localized detail", body)
+	}
+	if strings.Contains(body, "error.too-many-requests") {
+		t.Fatalf("body = %q, must not leak the copy key", body)
 	}
 
 	close(release)

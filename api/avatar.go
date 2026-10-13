@@ -4,18 +4,9 @@ import (
 	"bytes"
 	"net/http"
 	"time"
-
-	"dv-page/httpx"
 )
 
 func (s *server) handleAvatar(w http.ResponseWriter, r *http.Request) {
-	lang := negotiateLanguage(r)
-
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		httpx.WriteError(w, s.logger(), http.StatusMethodNotAllowed, lang, "error.method-not-allowed")
-		return
-	}
-
 	avatar := s.opts.App.Profile().Avatar
 
 	w.Header().Set("Content-Type", avatar.ContentType)

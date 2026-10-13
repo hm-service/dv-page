@@ -21,17 +21,18 @@ func WriteJSON(w http.ResponseWriter, logger *slog.Logger, status int, payload a
 	}
 }
 
-// ErrorDetail 同时给文案键与渲染结果：键便于日志与前端排查，消息给人看。
-type ErrorDetail struct {
-	Key     string `json:"key"`
-	Message string `json:"message"`
+// 错误响应体统一是 {"detail": "…"}，前端只读 detail。
+type detailBody struct {
+	Detail string `json:"detail"`
 }
 
-type errorBody struct {
-	Error ErrorDetail `json:"error"`
+// SetLanguageHeaders 标出响应正文用的是哪种语言，并声明按 Accept-Language 变化。
+func SetLanguageHeaders(w http.ResponseWriter, lang i18n.Language) {
+	w.Header().Set("Content-Language", string(lang))
+	w.Header().Set("Vary", "Accept-Language")
 }
 
-// WriteError 按 lang 渲染面向用户的文案。
+// WriteError 按 lang 渲染面向用户的文案；文案键只进日志，不随响应发出去。
 func WriteError(
 	w http.ResponseWriter,
 	logger *slog.Logger,
@@ -40,9 +41,12 @@ func WriteError(
 	key string,
 	args ...any,
 ) {
-	WriteJSON(w, logger, status, errorBody{
-		Error: ErrorDetail{Key: key, Message: i18n.T(lang, key, args...)},
-	})
+	if status >= http.StatusInternalServerError {
+		logger.Error("request failed", "status", status, "key", key)
+	}
+
+	SetLanguageHeaders(w, lang)
+	WriteJSON(w, logger, status, detailBody{Detail: i18n.T(lang, key, args...)})
 }
 
 // TrustedProxies 解析逗号分隔的 CIDR；裸 IP 按单机掩码补全。
@@ -101,6 +105,11 @@ func ClientIP(r *http.Request, trusted []*net.IPNet) string {
 	// 整条链都可信时，最左端才是最初的客户端。
 	if len(forwarded) > 0 {
 		return forwarded[0]
+	}
+
+	// 没有 XFF 时退回 X-Real-IP，同样只在直连对端可信时才采信。
+	if real := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); real != nil {
+		return real.String()
 	}
 
 	return peer

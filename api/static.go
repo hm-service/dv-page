@@ -17,7 +17,7 @@ const immutableCacheControl = "public, max-age=31536000, immutable"
 
 func (s *server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		httpx.WriteError(w, s.logger(), http.StatusMethodNotAllowed, negotiateLanguage(r), "error.method-not-allowed")
+		s.handleMethodNotAllowed(w, r)
 		return
 	}
 

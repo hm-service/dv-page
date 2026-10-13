@@ -29,7 +29,8 @@ type server struct {
 	opts Options
 }
 
-// NewRouter 挂上全部路由；方法校验留在处理器里，好让 405 也能走 i18n。
+// NewRouter 挂上全部路由。每个路径都额外注册一条「方法不对也算匹配」的回退，
+// 否则 ServeMux 只有在没有任何模式匹配时才回 405，而站点级 `/` 回退会把它变成 404。
 func NewRouter(opts Options) (http.Handler, error) {
 	if opts.MaxAPIConcurrency < 1 {
 		return nil, errors.New("max api concurrency must be at least 1")
@@ -41,10 +42,14 @@ func NewRouter(opts Options) (http.Handler, error) {
 	s := &server{opts: opts}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/profile", s.handleProfile)
-	mux.HandleFunc("/api/avatar", s.handleAvatar)
-	mux.HandleFunc("/livez", s.handleLivez)
-	mux.HandleFunc("/readyz", s.handleReadyz)
+	mux.HandleFunc("GET /api/profile", s.handleProfile)
+	mux.HandleFunc("/api/profile", s.handleMethodNotAllowed)
+	mux.HandleFunc("GET /api/avatar", s.handleAvatar)
+	mux.HandleFunc("/api/avatar", s.handleMethodNotAllowed)
+	mux.HandleFunc("GET /livez", s.handleLivez)
+	mux.HandleFunc("/livez", s.handleMethodNotAllowed)
+	mux.HandleFunc("GET /readyz", s.handleReadyz)
+	mux.HandleFunc("/readyz", s.handleMethodNotAllowed)
 	mux.HandleFunc("/", s.handleStatic)
 
 	limited := withConcurrencyLimits(
@@ -53,7 +58,7 @@ func NewRouter(opts Options) (http.Handler, error) {
 		s.withBodyLimit(mux),
 	)
 
-	return s.withAccessLog(s.withRecover(limited)), nil
+	return s.withAccessLog(s.withRecover(s.withSecurityHeaders(limited))), nil
 }
 
 func (s *server) clientIP(r *http.Request) string {
@@ -62,4 +67,10 @@ func (s *server) clientIP(r *http.Request) string {
 
 func (s *server) logger() *slog.Logger {
 	return s.opts.Logger
+}
+
+// handleMethodNotAllowed 是那些「路径对、方法不对」的回退：Go 的 GET 模式同时接受 HEAD。
+func (s *server) handleMethodNotAllowed(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Allow", "GET, HEAD")
+	httpx.WriteError(w, s.logger(), http.StatusMethodNotAllowed, negotiateLanguage(r), "error.method-not-allowed")
 }

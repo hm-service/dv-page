@@ -12,6 +12,18 @@ import (
 // 输入上限：本应用没有请求体，留一个保守的天花板挡住意外的提交。
 const maxRequestBodyBytes = 1 << 20
 
+// 与语言无关的默认安全响应头。
+func (s *server) withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header := w.Header()
+		header.Set("X-Content-Type-Options", "nosniff")
+		header.Set("Referrer-Policy", "no-referrer")
+		header.Set("X-Frame-Options", "DENY")
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *server) withBodyLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
@@ -62,8 +74,14 @@ func (r *statusRecorder) Write(payload []byte) (int, error) {
 }
 
 // withAccessLog：一条请求一行 JSON，时间戳由 handler 按 TZ 输出 RFC 3339。
+// /livez 由探针定时打，不记日志，免得把日志刷满。
 func (s *server) withAccessLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == livezPath {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		started := time.Now()
 		recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 

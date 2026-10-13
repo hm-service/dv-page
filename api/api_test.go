@@ -25,11 +25,8 @@ type profilePayload struct {
 	Lang string      `json:"lang"`
 }
 
-type errorPayload struct {
-	Error struct {
-		Key     string `json:"key"`
-		Message string `json:"message"`
-	} `json:"error"`
+type detailPayload struct {
+	Detail string `json:"detail"`
 }
 
 func do(handler http.Handler, request *http.Request) *httptest.ResponseRecorder {
@@ -154,6 +151,12 @@ func TestProfileEndpointRejectsOtherMethods(t *testing.T) {
 	if recorder.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
 	}
+	if allow := recorder.Header().Get("Allow"); allow != "GET, HEAD" {
+		t.Fatalf("allow = %q, want %q", allow, "GET, HEAD")
+	}
+	if payload := decode[detailPayload](t, recorder); payload.Detail == "" {
+		t.Fatal("405 body has no detail")
+	}
 }
 
 func TestLivez(t *testing.T) {
@@ -190,8 +193,8 @@ func TestReadyz(t *testing.T) {
 			target string
 			want   int
 		}{
-			{name: "missing", target: "/readyz", want: http.StatusForbidden},
-			{name: "wrong", target: "/readyz?token=nope", want: http.StatusForbidden},
+			{name: "missing", target: "/readyz", want: http.StatusUnauthorized},
+			{name: "wrong", target: "/readyz?token=nope", want: http.StatusUnauthorized},
 			{name: "right", target: "/readyz?token=s3cr3t", want: http.StatusOK},
 		}
 
@@ -200,6 +203,11 @@ func TestReadyz(t *testing.T) {
 				recorder := do(handler, httptest.NewRequest(http.MethodGet, tt.target, nil))
 				if recorder.Code != tt.want {
 					t.Fatalf("status = %d, want %d", recorder.Code, tt.want)
+				}
+				if tt.want == http.StatusUnauthorized {
+					if auth := recorder.Header().Get("WWW-Authenticate"); auth != "Bearer" {
+						t.Fatalf("www-authenticate = %q, want %q", auth, "Bearer")
+					}
 				}
 			})
 		}
@@ -219,9 +227,12 @@ func TestReadyz(t *testing.T) {
 			t.Fatalf("status = %d, want %d", recorder.Code, http.StatusServiceUnavailable)
 		}
 
-		payload := decode[errorPayload](t, recorder)
-		if payload.Error.Key != "readyz.not-ready" || !strings.Contains(payload.Error.Message, "index.html") {
-			t.Fatalf("error = %+v, want the readiness complaint", payload.Error)
+		payload := decode[detailPayload](t, recorder)
+		if payload.Detail != "service unavailable" {
+			t.Fatalf("detail = %q, want the generic unavailable message", payload.Detail)
+		}
+		if body := recorder.Body.String(); strings.Contains(body, "index.html") {
+			t.Fatalf("body = %q, must not leak the readiness detail", body)
 		}
 	})
 }
@@ -267,14 +278,7 @@ func TestStaticFiles(t *testing.T) {
 			method:     http.MethodGet,
 			target:     "/assets/missing.js",
 			wantStatus: http.StatusNotFound,
-			wantBody:   "error.not-found",
-		},
-		{
-			name:       "unknown api path never falls back to the page",
-			method:     http.MethodGet,
-			target:     "/api/legacy",
-			wantStatus: http.StatusNotFound,
-			wantBody:   "error.not-found",
+			wantBody:   "资源不存在",
 		},
 		{
 			name:          "head has no body",
@@ -288,7 +292,7 @@ func TestStaticFiles(t *testing.T) {
 			method:     http.MethodPost,
 			target:     "/",
 			wantStatus: http.StatusMethodNotAllowed,
-			wantBody:   "error.method-not-allowed",
+			wantBody:   "请求方法不被允许",
 		},
 	}
 
@@ -349,13 +353,13 @@ func TestAccessLog(t *testing.T) {
 		var logged bytes.Buffer
 		handler, _ := testenv.Server(t, testenv.Options{Logger: testenv.Logger(&logged)})
 
-		recorder := do(handler, httptest.NewRequest(http.MethodGet, "/livez", nil))
+		recorder := do(handler, httptest.NewRequest(http.MethodGet, "/api/profile", nil))
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 		}
 
 		line := logged.String()
-		for _, want := range []string{`"client_ip":"192.0.2.1"`, `"status":200`, `"path":"/livez"`, `"method":"GET"`, `"time":`} {
+		for _, want := range []string{`"client_ip":"192.0.2.1"`, `"status":200`, `"path":"/api/profile"`, `"method":"GET"`, `"lang":"zh-CN"`} {
 			if !strings.Contains(line, want) {
 				t.Fatalf("log = %q, want it to contain %q", line, want)
 			}
@@ -369,7 +373,7 @@ func TestAccessLog(t *testing.T) {
 			Trusted: "10.0.0.0/8",
 		})
 
-		request := httptest.NewRequest(http.MethodGet, "/livez", nil)
+		request := httptest.NewRequest(http.MethodGet, "/api/profile", nil)
 		request.RemoteAddr = "10.0.0.5:44444"
 		request.Header.Set("X-Forwarded-For", "203.0.113.9")
 
@@ -453,5 +457,83 @@ func TestAvatarEndpointRejectsOtherMethods(t *testing.T) {
 	recorder := do(handler, httptest.NewRequest(http.MethodPost, "/api/avatar", strings.NewReader("{}")))
 	if recorder.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	want := map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"Referrer-Policy":        "no-referrer",
+		"X-Frame-Options":        "DENY",
+	}
+
+	tests := []struct {
+		name   string
+		method string
+		target string
+	}{
+		{name: "api", method: http.MethodGet, target: "/api/profile"},
+		{name: "static", method: http.MethodGet, target: "/"},
+		{name: "not found", method: http.MethodGet, target: "/missing.js"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, _ := testenv.Server(t, testenv.Options{})
+			recorder := do(handler, httptest.NewRequest(tt.method, tt.target, nil))
+
+			for header, value := range want {
+				if got := recorder.Header().Get(header); got != value {
+					t.Errorf("%s = %q, want %q", header, got, value)
+				}
+			}
+		})
+	}
+}
+
+func TestLanguageHeaders(t *testing.T) {
+	handler, _ := testenv.Server(t, testenv.Options{})
+
+	t.Run("profile", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/api/profile", nil)
+		request.Header.Set("Accept-Language", "en")
+
+		recorder := do(handler, request)
+		if got := recorder.Header().Get("Content-Language"); got != "en" {
+			t.Fatalf("content-language = %q, want %q", got, "en")
+		}
+		if got := recorder.Header().Get("Vary"); got != "Accept-Language" {
+			t.Fatalf("vary = %q, want %q", got, "Accept-Language")
+		}
+	})
+
+	t.Run("error", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/api/missing", nil)
+		request.Header.Set("Accept-Language", "en")
+
+		recorder := do(handler, request)
+		if got := recorder.Header().Get("Content-Language"); got != "en" {
+			t.Fatalf("content-language = %q, want %q", got, "en")
+		}
+		if got := recorder.Header().Get("Vary"); got != "Accept-Language" {
+			t.Fatalf("vary = %q, want %q", got, "Accept-Language")
+		}
+	})
+}
+
+// /livez 由探针定时打，不记日志；/readyz 每次都记一条审计日志。
+func TestProbeLogging(t *testing.T) {
+	var logged bytes.Buffer
+	handler, _ := testenv.Server(t, testenv.Options{Logger: testenv.Logger(&logged)})
+
+	do(handler, httptest.NewRequest(http.MethodGet, "/livez", nil))
+	if line := logged.String(); line != "" {
+		t.Fatalf("livez log = %q, want nothing", line)
+	}
+
+	do(handler, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	line := logged.String()
+	if !strings.Contains(line, `"msg":"readyz"`) || !strings.Contains(line, `"path":"/readyz"`) {
+		t.Fatalf("readyz log = %q, want the audit line and the access line", line)
 	}
 }

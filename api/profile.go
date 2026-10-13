@@ -26,14 +26,9 @@ type profileResponse struct {
 
 func (s *server) handleProfile(w http.ResponseWriter, r *http.Request) {
 	lang := negotiateLanguage(r)
-
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		httpx.WriteError(w, s.logger(), http.StatusMethodNotAllowed, lang, "error.method-not-allowed")
-		return
-	}
-
 	profile := s.opts.App.Profile()
 
+	httpx.SetLanguageHeaders(w, lang)
 	w.Header().Set("Cache-Control", cacheControlDay)
 	w.Header().Set("ETag", profile.ETag())
 

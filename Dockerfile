@@ -4,7 +4,7 @@
 FROM --platform=$BUILDPLATFORM node:26-alpine AS frontend
 
 # 与 frontend/package.json 的 packageManager 保持一致（这条 Node 线里没有 corepack）
-ARG PNPM_VERSION=12.4.1
+ARG PNPM_VERSION=12.11.2
 RUN npm install -g pnpm@${PNPM_VERSION}
 
 WORKDIR /build/frontend
@@ -39,7 +39,8 @@ COPY . .
 COPY --from=frontend /build/frontend/dist ./frontend/dist
 
 # -ldflags="-w -s"：移除调试信息与符号表，明显减小二进制
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-w -s" -trimpath -o dv-page .
+# -trimpath 从编译后的可执行文件中移除所有本地文件系统路径，以生成可复现的构建结果
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-w -s" -trimpath -o app.bin .
 
 # ==========================================
 # 第三阶段：运行
@@ -53,9 +54,9 @@ RUN apk --no-cache add ca-certificates curl tzdata
 WORKDIR /app
 
 # 运行时只有这一个二进制：前端产物已经 go:embed 进去，frontend/ 整个不进最终镜像
-COPY --from=builder /build/dv-page .
+COPY --from=builder /build/app.bin .
 
 VOLUME ["/data"]
 EXPOSE 8080
 
-CMD ["./dv-page"]
+CMD ["./app.bin"]

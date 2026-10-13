@@ -59,6 +59,7 @@ func TestClientIP(t *testing.T) {
 		trusted string
 		remote  string
 		headers []string
+		realIP  string
 		want    string
 	}{
 		{
@@ -109,6 +110,28 @@ func TestClientIP(t *testing.T) {
 			headers: []string{"not-an-ip, 198.51.100.4"},
 			want:    "198.51.100.4",
 		},
+		{
+			name:    "falls back to x-real-ip without xff",
+			trusted: "10.0.0.0/8",
+			remote:  "10.0.0.5:5555",
+			realIP:  "203.0.113.9",
+			want:    "203.0.113.9",
+		},
+		{
+			name:    "x-forwarded-for wins over x-real-ip",
+			trusted: "10.0.0.0/8",
+			remote:  "10.0.0.5:5555",
+			headers: []string{"198.51.100.4"},
+			realIP:  "203.0.113.9",
+			want:    "198.51.100.4",
+		},
+		{
+			name:    "untrusted peer ignores x-real-ip too",
+			trusted: "127.0.0.1/32",
+			remote:  "192.0.2.10:5555",
+			realIP:  "203.0.113.9",
+			want:    "192.0.2.10",
+		},
 	}
 
 	for _, tt := range tests {
@@ -117,6 +140,9 @@ func TestClientIP(t *testing.T) {
 			request.RemoteAddr = tt.remote
 			for _, hop := range tt.headers {
 				request.Header.Add("X-Forwarded-For", hop)
+			}
+			if tt.realIP != "" {
+				request.Header.Set("X-Real-IP", tt.realIP)
 			}
 
 			if got := ClientIP(request, mustProxies(t, tt.trusted)); got != tt.want {
@@ -146,7 +172,15 @@ func TestWriteError(t *testing.T) {
 	if contentType := recorder.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "application/json") {
 		t.Fatalf("content type = %q, want json", contentType)
 	}
-	if body := recorder.Body.String(); !strings.Contains(body, "resource not found") || !strings.Contains(body, "error.not-found") {
-		t.Fatalf("body = %q, want key and rendered message", body)
+	if body := recorder.Body.String(); !strings.Contains(body, `"detail":"resource not found"`) {
+		t.Fatalf("body = %q, want the rendered detail", body)
+	} else if strings.Contains(body, "error.not-found") {
+		t.Fatalf("body = %q, must not leak the copy key", body)
+	}
+	if got := recorder.Header().Get("Content-Language"); got != "en" {
+		t.Fatalf("content-language = %q, want %q", got, "en")
+	}
+	if got := recorder.Header().Get("Vary"); got != "Accept-Language" {
+		t.Fatalf("vary = %q, want %q", got, "Accept-Language")
 	}
 }

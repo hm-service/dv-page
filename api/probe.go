@@ -7,38 +7,34 @@ import (
 	"dv-page/httpx"
 )
 
+const livezPath = "/livez"
+
 type statusResponse struct {
 	Status string `json:"status"`
 }
 
-// handleLivez 只看进程是否还能应答，不查依赖、不记日志。
+// handleLivez 只看进程是否还能应答：只要服务在跑就恒 200。
 func (s *server) handleLivez(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		httpx.WriteError(w, s.logger(), http.StatusMethodNotAllowed, negotiateLanguage(r), "error.method-not-allowed")
-		return
-	}
-
 	httpx.WriteJSON(w, s.logger(), http.StatusOK, statusResponse{Status: "ok"})
 }
 
-// handleReadyz 查依赖就绪，并按约定留一条审计日志。
+// handleReadyz 查依赖，并按约定留一条审计日志。
+// 失败的具体原因只进日志，响应里只给一句通用文案。
 func (s *server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	lang := negotiateLanguage(r)
 
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		httpx.WriteError(w, s.logger(), http.StatusMethodNotAllowed, lang, "error.method-not-allowed")
-		return
-	}
-
 	if !s.readyTokenMatches(r) {
-		s.logReadyz(r, http.StatusForbidden, "token mismatch")
-		httpx.WriteError(w, s.logger(), http.StatusForbidden, lang, "error.forbidden")
+		s.logReadyz(r, http.StatusUnauthorized, "token mismatch")
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		httpx.WriteError(w, s.logger(), http.StatusUnauthorized, lang, "error.unauthorized")
+
 		return
 	}
 
 	if err := s.opts.App.Ready(); err != nil {
 		s.logReadyz(r, http.StatusServiceUnavailable, err.Error())
-		httpx.WriteError(w, s.logger(), http.StatusServiceUnavailable, lang, "readyz.not-ready", err.Error())
+		httpx.WriteError(w, s.logger(), http.StatusServiceUnavailable, lang, "error.unavailable")
+
 		return
 	}
 

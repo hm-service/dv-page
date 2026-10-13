@@ -18,20 +18,20 @@ const (
 
 var messages = map[Language]map[string]string{
 	Chinese: {
-		"error.forbidden":          "禁止访问",
 		"error.internal":           "服务器内部错误",
 		"error.method-not-allowed": "请求方法不被允许",
 		"error.not-found":          "资源不存在",
 		"error.too-many-requests":  "请求过多，请稍后重试",
-		"readyz.not-ready":         "未就绪：%s",
+		"error.unauthorized":       "缺少或错误的凭据",
+		"error.unavailable":        "服务暂不可用",
 	},
 	English: {
-		"error.forbidden":          "forbidden",
 		"error.internal":           "internal server error",
 		"error.method-not-allowed": "request method not allowed",
 		"error.not-found":          "resource not found",
 		"error.too-many-requests":  "too many requests, please retry later",
-		"readyz.not-ready":         "not ready: %s",
+		"error.unauthorized":       "missing or invalid credentials",
+		"error.unavailable":        "service unavailable",
 	},
 }
 

@@ -80,9 +80,8 @@ cd frontend && pnpm install
 | `frontend/`                    | 前端工程（pnpm + Vite + Vue + TS），构建产物 `frontend/dist`                |
 | `builtin/`                     | 随二进制发布的内置资源（go:embed + manifest）                               |
 | `internal/testenv/`            | 测试脚手架：临时 DATA_DIR、临时库、现成的测试服务                           |
-| `tools/`                       | 零依赖小工具（如 `shot.mjs`：CDP 截图 + 控制台错误转发）                    |
 | `docs/`                        | 交付物：截图、反代示例；README 可直接引用它们                               |
-| `k8s.yaml` `quadlet-kube.kube` | 部署：Pod + PVC + ConfigMap；podman kube play / systemd 模板                |
+| `k8s.<app>.yaml` `<app>.kube`  | 部署：Pod + ConfigMap；podman kube play / systemd 模板                      |
 | `DESIGN.md`                    | 有用户主导编写的设计：包括部署、页面、接口、表结构、安全模型等方面          |
 
 - 除非 `DESIGN.md` 为空或用户明确要求修改，否则不应自行改动，仅做汇报与建议。
@@ -157,7 +156,7 @@ cd frontend && pnpm install
 ### 3.6. 前端验证
 
 - 先检查本机是否有 `chrome` 和配套的 `chromedriver` 可用。
-- 改 UI 后应实跑浏览器：`tools/shot.mjs` 截图 + 转发控制台错误。
+- 改 UI 后应实跑浏览器：用技能自带的 `shot.mjs` 截图 + 转发控制台错误（脚本不落在项目里）。
 - 无头浏览器默认 `en-US`，要验中文得显式设 `localStorage`；关键截图进 `docs/` 并在 README 里引用。
 - 给前端留一个调试入口（如 `window.__app = { store, viewer }`），排查时用 CDP 读状态比翻日志快。
 
@@ -184,7 +183,7 @@ cd frontend && pnpm install
 
 ### 3.10. 部署与运维
 
-- `k8s.yaml` 供 podman `kube play` 与 systemd 模板用：ConfigMap 注入环境变量，`DATA_DIR` 挂 PVC；容器开 `readOnlyRootFilesystem` 并 `drop: ALL`。探针分两个：`/livez` 只看进程（不记日志），`/readyz` 查依赖就绪并记一条审计日志（可用 `READYZ_TOKEN` 挡住外部探测）。
+- `k8s.<app>.yaml` 供 podman `kube play` 与 systemd 模板用：ConfigMap 注入环境变量，有数据存储时 `DATA_DIR` 挂 PVC；容器开 `readOnlyRootFilesystem` 并 `drop: ALL`。探针分两个：`/livez` 只看进程（不记日志），`/readyz` 查依赖就绪并记一条审计日志（可用 `READYZ_TOKEN` 挡住外部探测）。
 - 镜像同时推「日期」与 `latest` 两个 tag，`linux/amd64` + `linux/arm64`；Go 在 `$BUILDPLATFORM` 上交叉编译。
 - 前端也在镜像里构建（node 阶段 → `COPY --from` 把 `frontend/dist` 交给 Go 阶段），所以 `.dockerignore` 排掉宿主机的 `frontend/node_modules` 与 `frontend/dist`；运行时阶段只放那一个二进制。
 - 数据目录（SQLite 连同 `-wal` / `-shm`）应就是应用全部状态。
