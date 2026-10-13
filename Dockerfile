@@ -46,7 +46,7 @@ RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-w -s" -trimpath -o
 # ==========================================
 FROM alpine:3
 
-# podman 把 kube 的 httpGet 存活探针翻译成 `curl -f <url> || exit 1` 在容器里执行，
+# Podman 会把 kube 的 httpGet 存活探针翻译成 `curl -f <url> || exit 1` 在容器里执行，
 # 镜像里没有 curl 探针就恒失败，容器会被反复判 unhealthy 后重启。
 RUN apk --no-cache add ca-certificates curl tzdata
 
