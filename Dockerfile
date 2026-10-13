@@ -1,11 +1,10 @@
 # ==========================================
 # 第一阶段：构建前端
 # ==========================================
-FROM --platform=$BUILDPLATFORM node:26-alpine AS frontend
+FROM --platform=$BUILDPLATFORM node:26.7.0-alpine AS frontend
 
-# 与 frontend/package.json 的 packageManager 保持一致（这条 Node 线里没有 corepack）
-ARG PNPM_VERSION=12.11.2
-RUN npm install -g pnpm@${PNPM_VERSION}
+# 与 frontend/package.json 的 packageManager、CI 里的 pnpm 版本保持一致
+RUN npm install -g pnpm@12.13.0
 
 WORKDIR /build/frontend
 
@@ -18,7 +17,7 @@ RUN pnpm build
 # ==========================================
 # 第二阶段：构建 Go 二进制
 # ==========================================
-FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -56,7 +55,6 @@ WORKDIR /app
 # 运行时只有这一个二进制：前端产物已经 go:embed 进去，frontend/ 整个不进最终镜像
 COPY --from=builder /build/app.bin .
 
-VOLUME ["/data"]
 EXPOSE 8080
 
 CMD ["./app.bin"]

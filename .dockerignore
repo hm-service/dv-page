@@ -16,10 +16,6 @@
 /.go-build/
 /.go-mod-cache/
 
-# 运行时数据（数据库含 -wal / -shm、密钥等），首次启动自动重建
-/.data/
-/.data_sample/
-
 # pnpm 内容寻址存储（默认位置不可写时会落到仓库里）
 /.pnpm-store/
 
@@ -52,7 +48,6 @@
 /docs/
 /README.md
 /DESIGN.md
-/AGENTS.md
 /k8s.*.yaml
 /*.kube
 /justfile

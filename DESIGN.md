@@ -33,8 +33,8 @@ Daveny 的个人主页：一屏封面 + 一屏备案信息。后端托管前端�
 - 头像做成二进制资源而不是 JSON 字段：base64 会把 483 KiB 撑成 645 KiB，还要让每个在途响应各持一块 `encoding/json` 的编码缓冲。拆开之后页面就是普通的 `<img src="/api/avatar">`，服务端只做一次 `http.ServeContent`（顺带白拿 Range 与 304）。
 - 两个接口各有各的缓存：`/api/profile` 的 ETag 覆盖名字与站点事实，`/api/avatar` 的 ETag 覆盖图片内容，都是 `Cache-Control: public, max-age=86400`；换图不会让档案缓存失效，改备案也不会让图片重下。
 - 语言协商：`?lang=` 优先，其次 `Accept-Language`（按 q 值），都不认识就用 `zh-CN`。
-- 错误响应统一为 `{"error":{"key","message"}}`：键给日志与前端排查，消息按协商语言渲染；未知键原样返回键名。
-- 非 GET/HEAD 一律 405；`/readyz` token 不匹配 403；在途请求超过所属分组的上限时 503（带 `Retry-After`）；依赖不就绪 503。
+- 错误响应统一为 `{"detail": "…"}`：正文按 `Accept-Language` 渲染，响应头带 `Content-Language` 与 `Vary: Accept-Language`；文案键只进日志，不随响应发出。
+- 非 GET/HEAD 一律 405（带 `Allow: GET, HEAD`）；`/readyz` 的 token 不匹配 401（带 `WWW-Authenticate: Bearer`）；在途请求超过所属分组的上限时 503（带 `Retry-After`）；未就绪 503，原因只进日志。
 - 看起来像导航的路径（无扩展名）回退到 `index.html`；缺的静态资源与 `/api/` 下不存在的路径都是 404 JSON —— 老客户端不会拿到入口 HTML 当接口成功。
 - 前端产物只有占位（干净检出、本机只调接口）时：接口照常，页面 404、`/readyz` 503 —— 起不来的是页面，不是进程。
 
@@ -42,13 +42,13 @@ Daveny 的个人主页：一屏封面 + 一屏备案信息。后端托管前端�
 
 | 变量名                   | 默认值                       | 说明                                       |
 | ------------------------ | ---------------------------- | ------------------------------------------ |
-| `HOST`                   | `127.0.0.1`                  | 监听地址                                   |
-| `PORT`                   | `8080`                       | 监听端口                                   |
-| `MAX_API_CONCURRENCY`    | `128`                        | API 在途上限（含两个探针），必须 >= 1       |
-| `MAX_STATIC_CONCURRENCY` | `64`                         | 静态文件在途上限，必须 >= 1                 |
-| `READYZ_TOKEN`           | 空                           | 非空时 `/readyz` 必须带 `?token=`           |
+| `HOST`                   | `127.0.0.1`                  | 监听地址，必须是合法 IP                    |
+| `PORT`                   | `8080`                       | 监听端口，1–65535                          |
+| `MAX_API_CONCURRENCY`    | `128`                        | API 在途上限（含两个探针），1–4096          |
+| `MAX_STATIC_CONCURRENCY` | `64`                         | 静态文件在途上限，1–4096                    |
+| `READYZ_TOKEN`           | 空                           | 非空时必须是 16–128 位 `[a-z0-9_]`，`/readyz` 要带 `?token=` |
 | `TRUSTED_PROXIES`        | `127.0.0.1/32,::1/128`       | 可信反代段，决定是否采信 `X-Forwarded-For` |
-| `TZ`                     | 容器不给就 UTC               | 日志时间戳时区                             |
+| `TZ`                     | `Asia/Shanghai`              | 日志时间戳时区，必须是可加载的时区         |
 | `GOMEMLIMIT`             | 空（k8s 里给 `48MiB`）       | Go 运行时直接读取，应用不解析              |
 | `MY_NAME`                | `Daveny`                     | 主页展示的名字（也用作版权署名）           |
 | `AVATAR_FILE`            | 空（用内置头像）             | 头像文件路径，启动时读进内存               |
@@ -56,7 +56,7 @@ Daveny 的个人主页：一屏封面 + 一屏备案信息。后端托管前端�
 | `SITE_ICP_URL`           | `https://beian.miit.gov.cn/` | 备案号链接，必须是绝对 http(s) URL         |
 | `SITE_COPYRIGHT_YEAR`    | 当年                         | 版权年份，必须在 1970–9999 之间            |
 
-配置在启动时一次性校验（fast fail）：名字非空、头像非空且确实是图片（按内容嗅探）、备案号非空、链接合法、年份在范围内、并发上限至少为 1；`AVATAR_FILE` 指了文件却读不到就直接起不来，不静默降级成内置图。
+配置在启动时一次性校验（fast fail）：名字非空、头像非空且确实是图片（按内容嗅探）、备案号非空、链接合法、年份在 1970–9999、并发上限在 1–4096、`HOST` 是合法 IP、`PORT` 在 1–65535、`TZ` 可加载、`READYZ_TOKEN` 符合长度与字符集；`AVATAR_FILE` 指了文件却读不到就直接起不来，不静默降级成内置图。
 
 ## 4. 安全模型
 
@@ -65,8 +65,9 @@ Daveny 的个人主页：一屏封面 + 一屏备案信息。后端托管前端�
 - 满了立刻 503 + `Retry-After`，不排队：排队只是把内存压力换成延迟，还会把连接堆在网关里。上限的意义是把「内存 ≈ 底噪 + 在途数 × 单响应开销」里的在途数变成常数：头像拆成二进制流之后单响应开销只剩几 KB 的拷贝缓冲，两组名额打满时的实测峰值约 37 MB，这就是 64Mi 内存预算的依据。
 - 预算没覆盖的是**连接数**：信号量管的是在途请求，不管连接，每条连接本身要 40–75 KB（压到 1024 条连接时实测 75–95 MB）。连接数限制按分工归反代。
 - 按约定两个探针算在 API 组内，所以 API 组被打满时 `/livez`、`/readyz` 也会返回 503 —— 这正是「想要探针永远能答」时需要权衡的地方：要么把探针拆成第三组，要么靠反代给探针留路。当前实现按约定把探针放 API 组。
-- 访问日志一条请求一行 JSON 到 stdout，含真实客户端 IP、方法、路径（**只记 path，不带 query**，避免 `?token=` 落到日志）、状态码、字节数、耗时、语言。
-- 客户端 IP 只在直连对端属于 `TRUSTED_PROXIES` 时才看 `X-Forwarded-For`，并从右往左取第一个不可信的跳，防伪造。
+- 访问日志一条请求一行 JSON 到 stdout，含 `client_ip`、`timestamp`（RFC 3339，按 `TZ`）、方法、路径（**只记 path，不带 query**，避免 `?token=` 落到日志）、状态码、字节数、耗时、语言；`/livez` 由探针定时打，不记日志。
+- 客户端 IP 只在直连对端属于 `TRUSTED_PROXIES` 时才看 `X-Forwarded-For`，并从右往左取第一个不可信的跳，防伪造；没有 XFF 时回退 `X-Real-IP`（同样只在直连对端可信时采信）。
+- 所有响应默认带 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。
 - `/readyz` 的 token 用恒定时间比较。
 - 应用不写任何文件、不需要卷：读头像用只读 `os.ReadFile`，容器因此可以 `readOnlyRootFilesystem` + `drop: ALL`。
 - 运行时镜像只放一个静态二进制与 `ca-certificates`/`curl`/`tzdata`。
@@ -75,7 +76,7 @@ Daveny 的个人主页：一屏封面 + 一屏备案信息。后端托管前端�
 
 应用没有状态：没有数据库、没有数据目录、没有缓存文件。名字与站点事实来自环境变量，头像来自 `AVATAR_FILE` 或二进制内嵌的那一张，进程起来之后全程只读。三者的变更方式都只是「改配置 → 重启」，无需考虑兼容或迁移。
 
-启动时算好的东西只有三份，之后每个请求都直接复用：头像原始字节、嗅探出来的 `Content-Type`、以及两个 ETag（档案的一份、头像的一份）。请求路径上没有磁盘 IO，也没有把大对象重新编码一遍。
+启动时算好、之后每个请求直接复用的东西只有几份：头像原始字节、嗅探出来的 `Content-Type`、两个 ETag（档案一份、头像一份）。请求路径上没有磁盘 IO，也没有把大对象重新编码一遍。
 
 `/readyz` 因此只断言一件事：内嵌的前端产物里确实有入口文件。本机用占位 dist 只跑接口时，它会如实报未就绪。
 
@@ -83,6 +84,8 @@ Daveny 的个人主页：一屏封面 + 一屏备案信息。后端托管前端�
 
 ## 6. 部署
 
-`k8s.yaml` 供 `podman kube play` 与 quadlet 模板用：ConfigMap 注入环境变量，Pod 内只跑一个容器、不挂任何卷，探针 `/livez` 与 `/readyz?token=...` 各一。内存按 64Mi 给（`requests` 与 `limits` 都是 64Mi），`GOMEMLIMIT` 压到 48MiB —— 留四分之一给栈、GC 元数据这些堆外开销，避免堆打满时 RSS 反而越过硬限被 OOM。
+`k8s.dv-page.yaml` 供 `podman kube play` 用，`dv-page.kube` 是 quadlet 模板：ConfigMap 注入环境变量，Pod 内只跑一个容器、应用无状态所以不挂任何卷，探针 `/livez` 与 `/readyz?token=...` 各一。内存按 64Mi 给（`requests` 与 `limits` 都是 64Mi），`GOMEMLIMIT` 压到 48MiB —— 留四分之一给栈、GC 元数据这些堆外开销，避免堆打满时 RSS 反而越过硬限被 OOM。
+
+工具链按精确版本固定：Go 1.27.2（`go.mod` 与镜像）、Node 26.7.0、pnpm 12.13.0（`package.json` 的 `packageManager`、镜像与 CI 三处一致）。
 
 镜像由 CI 双架构（`linux/amd64` + `linux/arm64`）构建并推送，同时打日期与 `latest` 两个 tag；前端在镜像的 Node 阶段构建，`COPY --from` 交给 Go 阶段 `go:embed`，最终镜像里没有 `frontend/`。

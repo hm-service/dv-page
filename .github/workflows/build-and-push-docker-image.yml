@@ -5,11 +5,10 @@ on:
         branches:
             - main
         paths-ignore:
-            - "AGENTS.md"
             - "DESIGN.md"
             - "justfile"
-            - "k8s.yaml"
-            - "quadlet-kube.kube"
+            - "k8s.dv-page.yaml"
+            - "dv-page.kube"
             - "LICENSE"
             - "README.md"
             - "docs/**"
@@ -56,12 +55,12 @@ jobs:
             - name: Set up pnpm
               uses: pnpm/action-setup@v6
               with:
-                  version: 12.11.2
+                  version: 12.13.0
 
             - name: Set up Node
               uses: actions/setup-node@v7
               with:
-                  node-version: "26.x"
+                  node-version: 26.7.0
                   cache: pnpm
                   cache-dependency-path: frontend/pnpm-lock.yaml
 
@@ -122,8 +121,6 @@ jobs:
                   context: .
                   push: true
                   provenance: false
-                  # amd64 + arm64 双架构：构建阶段在 $BUILDPLATFORM 上交叉编译，
-                  # 前端也在镜像里自己构建，所以上下文里不需要任何产物。
                   platforms: linux/amd64,linux/arm64
                   # 同时打上 latest 和 日期 tag
                   tags: |

@@ -8,9 +8,7 @@ DIST := ".dist"
 DIST_OS := env("DIST_OS", "linux")
 ARCHS := env("ARCHS", "amd64 arm64")
 
-HOST := env("HOST", "127.0.0.1")
 PORT := env("PORT", "8080")
-DATA_DIR := justfile_directory() / ".data"
 
 # 列出全部命令
 default:
@@ -56,7 +54,7 @@ fmt:
 
 # 本机跑起来（HOST / PORT / READYZ_TOKEN / TZ 等直接走环境变量）
 run: frontend
-    DATA_DIR={{ justfile_directory() }}/.data go run .
+    go run .
 
 # 停止本机上这份服务：按监听端口定位进程 → 确认确实属于本项目 → SIGINT
 stop:

@@ -8,7 +8,7 @@ data:
     HOST: "0.0.0.0"
     PORT: "8080"
     READYZ_TOKEN: "your_readyz_token"
-    TRUSTED_PROXIES: "127.0.0.1/32,::1/128,10.89.2.0/24"
+    TRUSTED_PROXIES: "127.0.0.1/32,::1/128"
     GOMEMLIMIT: "48MiB"
     # 两组在途请求上限，槽位互相独立：API（含两个探针）一组，静态文件一组
     MAX_API_CONCURRENCY: 128
