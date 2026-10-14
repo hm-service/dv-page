@@ -228,16 +228,19 @@ func listenAddress() (string, error) {
 	return net.JoinHostPort(host, strconv.Itoa(port)), nil
 }
 
-var readyzTokenPattern = regexp.MustCompile(`^[a-z0-9_]{16,128}$`)
+var readyzTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_]{16,128}$`)
 
-// readyzToken 为空表示 /readyz 不设门槛；设了就必须是 16–128 位的 [a-z0-9_]。
+// readyzToken 为空表示 /readyz 不设门槛；设了就必须是 16–128 位的字母、数字或下划线。
+// 读进内存后立刻从进程环境里抹掉，免得子进程把这份凭据继承走。
 func readyzToken() (string, error) {
 	token := os.Getenv("READYZ_TOKEN")
+	os.Unsetenv("READYZ_TOKEN")
+
 	if token == "" {
 		return "", nil
 	}
 	if !readyzTokenPattern.MatchString(token) {
-		return "", errors.New("env READYZ_TOKEN must be 16-128 characters of [a-z0-9_]")
+		return "", errors.New("env READYZ_TOKEN must be 16-128 characters of letters, digits or underscore")
 	}
 
 	return token, nil

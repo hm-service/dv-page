@@ -12,13 +12,19 @@ import (
 // 输入上限：本应用没有请求体，留一个保守的天花板挡住意外的提交。
 const maxRequestBodyBytes = 1 << 20
 
-// 与语言无关的默认安全响应头。
+// 与语言无关的默认安全响应头。入口 HTML 没有内联脚本、没有外部引用，脚本与样式
+// 都是同源产物，所以 CSP 可以收得很紧。
+const contentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; " +
+	"img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; " +
+	"base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
 func (s *server) withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := w.Header()
 		header.Set("X-Content-Type-Options", "nosniff")
 		header.Set("Referrer-Policy", "no-referrer")
 		header.Set("X-Frame-Options", "DENY")
+		header.Set("Content-Security-Policy", contentSecurityPolicy)
 
 		next.ServeHTTP(w, r)
 	})

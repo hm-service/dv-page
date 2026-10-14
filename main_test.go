@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io/fs"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -72,8 +73,8 @@ func TestReadyzToken(t *testing.T) {
 	}{
 		{name: "unset means open"},
 		{name: "valid", value: "your_readyz_token"},
+		{name: "uppercase and digits are fine", value: "Your_Readyz_Token_2"},
 		{name: "too short", value: "short", wantErr: true},
-		{name: "uppercase refused", value: "Your_Readyz_Token", wantErr: true},
 		{name: "punctuation refused", value: "your-readyz-token", wantErr: true},
 		{name: "too long", value: strings.Repeat("a", 129), wantErr: true},
 	}
@@ -92,6 +93,9 @@ func TestReadyzToken(t *testing.T) {
 			}
 			if err != nil || got != tt.value {
 				t.Fatalf("readyzToken() = (%q, %v), want (%q, nil)", got, err, tt.value)
+			}
+			if left := os.Getenv("READYZ_TOKEN"); left != "" {
+				t.Fatalf("READYZ_TOKEN is still in the environment: %q", left)
 			}
 		})
 	}

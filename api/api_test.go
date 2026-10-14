@@ -465,6 +465,9 @@ func TestSecurityHeaders(t *testing.T) {
 		"X-Content-Type-Options": "nosniff",
 		"Referrer-Policy":        "no-referrer",
 		"X-Frame-Options":        "DENY",
+		"Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; " +
+			"img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; " +
+			"base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
 	}
 
 	tests := []struct {

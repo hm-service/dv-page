@@ -7,7 +7,10 @@ import (
 	"dv-page/httpx"
 )
 
-const livezPath = "/livez"
+const (
+	livezPath  = "/livez"
+	readyzPath = "/readyz"
+)
 
 type statusResponse struct {
 	Status string `json:"status"`

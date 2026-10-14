@@ -4,21 +4,30 @@ kind: ConfigMap
 metadata:
     name: env
 data:
-    TZ: "Asia/Shanghai"
     HOST: "0.0.0.0"
     PORT: "8080"
-    READYZ_TOKEN: "your_readyz_token"
+    TZ: "Asia/Shanghai"
     TRUSTED_PROXIES: "127.0.0.1/32,::1/128"
-    GOMEMLIMIT: "48MiB"
-    # 两组在途请求上限，槽位互相独立：API（含两个探针）一组，静态文件一组
+    # 三组在途请求上限，槽位互相独立：业务接口、静态文件、/readyz（容量固定为 4）
     MAX_API_CONCURRENCY: 128
     MAX_STATIC_CONCURRENCY: 64
+    GOMEMLIMIT: "48MiB"
     MY_NAME: "Daveny"
     # 换头像：自己挂一个只读文件（ConfigMap / hostPath / 自制镜像都行）再打开这一行；
     # 不设置就用二进制里的内置头像。
     # AVATAR_FILE: "/etc/dv-page/avatar.jpg"
     SITE_ICP: "蜀ICP备2026015939号-1"
     SITE_ICP_URL: "https://beian.miit.gov.cn/"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+    name: secrets
+type: Opaque
+stringData:
+    # 改这里时，下面的 readinessProbe 的 ?token= 要跟着一起改
+    READYZ_TOKEN: "your_readyz_token"
 
 ---
 apiVersion: v1
@@ -47,6 +56,8 @@ spec:
           envFrom:
               - configMapRef:
                     name: env
+              - secretRef:
+                    name: secrets
           ports:
               - name: http
                 containerPort: 8080

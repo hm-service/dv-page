@@ -46,15 +46,16 @@ func NewRouter(opts Options) (http.Handler, error) {
 	mux.HandleFunc("/api/profile", s.handleMethodNotAllowed)
 	mux.HandleFunc("GET /api/avatar", s.handleAvatar)
 	mux.HandleFunc("/api/avatar", s.handleMethodNotAllowed)
-	mux.HandleFunc("GET /livez", s.handleLivez)
-	mux.HandleFunc("/livez", s.handleMethodNotAllowed)
-	mux.HandleFunc("GET /readyz", s.handleReadyz)
-	mux.HandleFunc("/readyz", s.handleMethodNotAllowed)
+	mux.HandleFunc("GET "+livezPath, s.handleLivez)
+	mux.HandleFunc(livezPath, s.handleMethodNotAllowed)
+	mux.HandleFunc("GET "+readyzPath, s.handleReadyz)
+	mux.HandleFunc(readyzPath, s.handleMethodNotAllowed)
 	mux.HandleFunc("/", s.handleStatic)
 
 	limited := withConcurrencyLimits(
 		newLimiter(opts.MaxAPIConcurrency, opts.Logger),
 		newLimiter(opts.MaxStaticConcurrency, opts.Logger),
+		newLimiter(readyzConcurrency, opts.Logger),
 		s.withBodyLimit(mux),
 	)
 

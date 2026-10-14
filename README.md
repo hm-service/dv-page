@@ -59,7 +59,7 @@ curl -sD- -o /dev/null localhost:8080/api/avatar
 
 头像不塞进 JSON：base64 会把 483 KiB 撑成 645 KiB，还要在服务端多一次编码。分成二进制资源后，页面就是普通的 `<img src="/api/avatar">`，浏览器按图片缓存（ETag + `max-age=86400`），服务端只做一次 `ServeContent`（顺带白拿 Range 与 304）。
 
-错误响应统一是 `{"detail": "…"}`：文案按 `Accept-Language` 渲染，响应头带 `Content-Language` 与 `Vary: Accept-Language`；文案键只进日志，不随响应发出去。所有响应默认带 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。
+错误响应统一是 `{"detail": "…"}`：文案按 `Accept-Language` 渲染，响应头带 `Content-Language` 与 `Vary: Accept-Language`；文案键只进日志，不随响应发出去。所有响应默认带 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY` 与一条收紧的 `Content-Security-Policy`。
 
 `SITE_ICP` 这类配置**不是构建期变量**：前端产物是静态的（Vite 只打包，不做环境替换），后端启动时读环境变量，页面运行时从 `/api/profile` 拿到 `site.icp` 再渲染到页脚。
 
@@ -76,7 +76,7 @@ podman run -e MY_NAME=Daveny -e AVATAR_FILE=/etc/dv-page/avatar.png -v ./avatar.
 | `HOST` / `PORT`          | `127.0.0.1` / `8080`              | 监听地址（必须是合法 IP）与端口（1–65535）     |
 | `MAX_API_CONCURRENCY`    | `128`                             | API（含 `/livez`、`/readyz`）在途上限          |
 | `MAX_STATIC_CONCURRENCY` | `64`                              | 静态文件在途上限，与 API 使用独立槽位          |
-| `READYZ_TOKEN`           | 空                                | 非空时必须是 16–128 位 `[a-z0-9_]`，`/readyz` 要带 `?token=` |
+| `READYZ_TOKEN`           | 空                                | 非空时必须是 16–128 位字母 / 数字 / 下划线；k8s 里放 Secret |
 | `TRUSTED_PROXIES`        | `127.0.0.1/32,::1/128`            | 可信反代段，决定是否采信 `X-Forwarded-For`    |
 | `TZ`                     | `Asia/Shanghai`                   | 日志时间戳时区，无效值会拒绝启动              |
 | `GOMEMLIMIT`             | 空（k8s 里给 `48MiB`）            | Go 运行时直接读取，应用不解析                 |
@@ -130,7 +130,7 @@ node ~/.dsh/skills/create-lite-go-web-app/scripts/shot.mjs --url http://127.0.0.
 
 超出名额的部分不受信号量保护：连接数本身每个要 40–75 KB（`/api/avatar` c=1024 时 95 MB 里大头是 1024 条连接，而不是在途请求）。也就是说 64Mi 的预算是按「最多约 192 个在途请求 + 一小把连接」算的；如果有人把连接数打到四位数，仍会超——那属于反代该做的连接数限制。
 
-两组上限是硬顶，超出的请求立刻 503（带 `Retry-After`），槽位互不挤占：`/api/avatar` c=1024 时 1525 个 503，而静态资源照常返回完整 1.7 MB。按约定 `/livez`、`/readyz` 算在 API 组内，所以 API 组满时探针也会 503。
+上限是硬顶，超出的请求立刻 503（带 `Retry-After`），槽位互不挤占：`/api/avatar` c=1024 时 1525 个 503，而静态资源照常返回完整 1.7 MB。`/livez` 不设闸（恒 200），`/readyz` 有独立闸门（容量 4），所以业务接口被打满时探针照常应答。
 
 ## 部署
 
@@ -140,7 +140,7 @@ node ~/.dsh/skills/create-lite-go-web-app/scripts/shot.mjs --url http://127.0.0.
 podman kube play k8s.dv-page.yaml
 ```
 
-容器以非 root 运行、`readOnlyRootFilesystem`、`drop: ALL`，不挂任何卷；探针 `/livez` 与 `/readyz?token=...` 各一。
+容器以非 root 运行、`readOnlyRootFilesystem`、`drop: ALL`，不挂任何卷；ConfigMap 注入普通环境变量、Secret 注入 `READYZ_TOKEN`；探针 `/livez` 与 `/readyz?token=...` 各一。
 
 ## 目录
 

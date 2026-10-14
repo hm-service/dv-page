@@ -44,9 +44,9 @@ Daveny 的个人主页：一屏封面 + 一屏备案信息。后端托管前端�
 | ------------------------ | ---------------------------- | ------------------------------------------ |
 | `HOST`                   | `127.0.0.1`                  | 监听地址，必须是合法 IP                    |
 | `PORT`                   | `8080`                       | 监听端口，1–65535                          |
-| `MAX_API_CONCURRENCY`    | `128`                        | API 在途上限（含两个探针），1–4096          |
+| `MAX_API_CONCURRENCY`    | `128`                        | 业务接口 `/api/*` 在途上限，1–4096          |
 | `MAX_STATIC_CONCURRENCY` | `64`                         | 静态文件在途上限，1–4096                    |
-| `READYZ_TOKEN`           | 空                           | 非空时必须是 16–128 位 `[a-z0-9_]`，`/readyz` 要带 `?token=` |
+| `READYZ_TOKEN`           | 空                           | 非空时必须是 16–128 位字母 / 数字 / 下划线；k8s 里放 Secret |
 | `TRUSTED_PROXIES`        | `127.0.0.1/32,::1/128`       | 可信反代段，决定是否采信 `X-Forwarded-For` |
 | `TZ`                     | `Asia/Shanghai`              | 日志时间戳时区，必须是可加载的时区         |
 | `GOMEMLIMIT`             | 空（k8s 里给 `48MiB`）       | Go 运行时直接读取，应用不解析              |
@@ -61,14 +61,14 @@ Daveny 的个人主页：一屏封面 + 一屏备案信息。后端托管前端�
 ## 4. 安全模型
 
 - 应用不做 TLS、限流、鉴权，交给反代；只做输入上限与校验（请求体上限 1 MiB、在途请求上限、路径规范化后交给 `fs.FS`）。
-- 在途请求上限分成两组独立信号量：API（`/api/` 与两个探针）默认 `MAX_API_CONCURRENCY=128`，静态文件默认 `MAX_STATIC_CONCURRENCY=64`。两组槽位互不挤占——静态文件那 1.7 MB 的背景图刷起来，不会把接口和探针一起挤掉；反过来接口被打满，页面资源照常出。
+- 在途请求上限分成三组独立信号量：业务接口 `/api/*` 默认 `MAX_API_CONCURRENCY=128`，静态文件默认 `MAX_STATIC_CONCURRENCY=64`，`/readyz` 容量固定为 4（它要查依赖，但只给内部探针用）。三组槽位互不挤占——静态文件那 1.7 MB 的背景图刷起来，不会把接口和探针一起挤掉；反过来接口被打满，页面资源与探针照常出。
 - 满了立刻 503 + `Retry-After`，不排队：排队只是把内存压力换成延迟，还会把连接堆在网关里。上限的意义是把「内存 ≈ 底噪 + 在途数 × 单响应开销」里的在途数变成常数：头像拆成二进制流之后单响应开销只剩几 KB 的拷贝缓冲，两组名额打满时的实测峰值约 37 MB，这就是 64Mi 内存预算的依据。
 - 预算没覆盖的是**连接数**：信号量管的是在途请求，不管连接，每条连接本身要 40–75 KB（压到 1024 条连接时实测 75–95 MB）。连接数限制按分工归反代。
-- 按约定两个探针算在 API 组内，所以 API 组被打满时 `/livez`、`/readyz` 也会返回 503 —— 这正是「想要探针永远能答」时需要权衡的地方：要么把探针拆成第三组，要么靠反代给探针留路。当前实现按约定把探针放 API 组。
+- `/livez` 不设闸：它只是个「进程还在」的廉价应答，必须恒 200；`/readyz` 有独立闸门，被打满时只影响它自己。
 - 访问日志一条请求一行 JSON 到 stdout，含 `client_ip`、`timestamp`（RFC 3339，按 `TZ`）、方法、路径（**只记 path，不带 query**，避免 `?token=` 落到日志）、状态码、字节数、耗时、语言；`/livez` 由探针定时打，不记日志。
 - 客户端 IP 只在直连对端属于 `TRUSTED_PROXIES` 时才看 `X-Forwarded-For`，并从右往左取第一个不可信的跳，防伪造；没有 XFF 时回退 `X-Real-IP`（同样只在直连对端可信时采信）。
-- 所有响应默认带 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`。
-- `/readyz` 的 token 用恒定时间比较。
+- 所有响应默认带 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`、`X-Frame-Options: DENY`，以及一条收紧的 `Content-Security-Policy`（入口 HTML 无内联脚本、无外部引用，脚本与样式都是同源产物）。
+- `/readyz` 的 token 用恒定时间比较；`READYZ_TOKEN` 读进内存后立刻从进程环境里抹掉，免得子进程继承这份凭据。
 - 应用不写任何文件、不需要卷：读头像用只读 `os.ReadFile`，容器因此可以 `readOnlyRootFilesystem` + `drop: ALL`。
 - 运行时镜像只放一个静态二进制与 `ca-certificates`/`curl`/`tzdata`。
 
@@ -84,7 +84,7 @@ Daveny 的个人主页：一屏封面 + 一屏备案信息。后端托管前端�
 
 ## 6. 部署
 
-`k8s.dv-page.yaml` 供 `podman kube play` 用，`dv-page.kube` 是 quadlet 模板：ConfigMap 注入环境变量，Pod 内只跑一个容器、应用无状态所以不挂任何卷，探针 `/livez` 与 `/readyz?token=...` 各一。内存按 64Mi 给（`requests` 与 `limits` 都是 64Mi），`GOMEMLIMIT` 压到 48MiB —— 留四分之一给栈、GC 元数据这些堆外开销，避免堆打满时 RSS 反而越过硬限被 OOM。
+`k8s.dv-page.yaml` 供 `podman kube play` 用，`dv-page.kube` 是 quadlet 模板：ConfigMap 注入普通环境变量、Secret 注入 `READYZ_TOKEN`，Pod 内只跑一个容器、应用无状态所以不挂任何卷，探针 `/livez` 与 `/readyz?token=...` 各一。内存按 64Mi 给（`requests` 与 `limits` 都是 64Mi），`GOMEMLIMIT` 压到 48MiB —— 留四分之一给栈、GC 元数据这些堆外开销，避免堆打满时 RSS 反而越过硬限被 OOM。
 
 工具链按精确版本固定：Go 1.27.2（`go.mod` 与镜像）、Node 26.7.0、pnpm 12.13.0（`package.json` 的 `packageManager`、镜像与 CI 三处一致）。
 
